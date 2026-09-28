@@ -149,20 +149,27 @@ export const ExamWorkspace = () => {
     setSubmitting(true);
 
     try {
-      // Exit fullscreen before redirect
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
-
       const res = await api.submitAttempt(attempt._id, {
         answers,
         isAutoSubmit,
       });
 
+      // Exit fullscreen cleanly AFTER submission succeeds
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+
       if (res.success && res.attemptId) {
         navigate(`/results/${res.attemptId}`, { replace: true });
       }
     } catch (err) {
+      if (err.attemptId || (err.message && err.message.toLowerCase().includes('already submitted'))) {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+        navigate(`/results/${attempt._id}`, { replace: true });
+        return;
+      }
       alert(err.message || 'Submission failed. Please try again.');
       setSubmitting(false);
     }
@@ -199,6 +206,7 @@ export const ExamWorkspace = () => {
         antiCheatSettings={exam.antiCheatSettings}
         onViolation={handleViolation}
         onAutoSubmit={() => handleFinalSubmit(true, 'Maximum anti-cheat strikes exceeded.')}
+        isSubmitting={submitting}
       />
 
       {/* TOP WORKSPACE BAR */}

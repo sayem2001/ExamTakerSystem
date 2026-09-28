@@ -107,7 +107,7 @@ const examAttemptSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true }
+  { timestamps: true, versionKey: false }
 );
 
 // Compound index to guarantee one completed attempt per user per exam!

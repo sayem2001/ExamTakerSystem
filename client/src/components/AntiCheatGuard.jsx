@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ShieldAlert, AlertTriangle, Maximize2, AlertOctagon } from 'lucide-react';
 
 export const AntiCheatGuard = ({
@@ -10,6 +10,7 @@ export const AntiCheatGuard = ({
   },
   onViolation,
   onAutoSubmit,
+  isSubmitting = false,
 }) => {
   const [violationsCount, setViolationsCount] = useState(0);
   const [showWarningModal, setShowWarningModal] = useState(false);
@@ -17,25 +18,44 @@ export const AntiCheatGuard = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const maxStrikes = antiCheatSettings.maxTabSwitches || 3;
+  const lastViolationTimeRef = useRef(0);
+  const countRef = useRef(0);
+  const isSubmittingRef = useRef(isSubmitting);
+
+  useEffect(() => {
+    isSubmittingRef.current = isSubmitting;
+    if (isSubmitting) {
+      setShowWarningModal(false);
+    }
+  }, [isSubmitting]);
 
   const handleViolation = useCallback((type, message) => {
-    setViolationsCount((prev) => {
-      const nextCount = prev + 1;
-      setLastViolationMsg(message);
+    if (isSubmittingRef.current) return;
+
+    // Cooldown throttle to prevent simultaneous events (e.g. fullscreen exit + tab blur)
+    const now = Date.now();
+    if (now - lastViolationTimeRef.current < 2000) return;
+    lastViolationTimeRef.current = now;
+
+    const nextCount = countRef.current + 1;
+    countRef.current = nextCount;
+
+    setViolationsCount(nextCount);
+    setLastViolationMsg(message);
+
+    if (!isSubmittingRef.current) {
       setShowWarningModal(true);
+    }
 
-      if (onViolation) {
-        onViolation(type, `${message} (Strike ${nextCount}/${maxStrikes})`);
+    if (onViolation) {
+      onViolation(type, `${message} (Strike ${nextCount}/${maxStrikes})`);
+    }
+
+    if (nextCount >= maxStrikes) {
+      if (onAutoSubmit) {
+        onAutoSubmit(true, 'Disqualified / Auto-submitted due to maximum anti-cheat violations reached.');
       }
-
-      if (nextCount >= maxStrikes) {
-        if (onAutoSubmit) {
-          onAutoSubmit(true, 'Disqualified / Auto-submitted due to maximum anti-cheat violations reached.');
-        }
-      }
-
-      return nextCount;
-    });
+    }
   }, [maxStrikes, onViolation, onAutoSubmit]);
 
   // Request fullscreen

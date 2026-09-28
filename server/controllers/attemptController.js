@@ -89,23 +89,23 @@ exports.syncAnswers = async (req, res) => {
     const { attemptId } = req.params;
     const { answers, timeSpentSeconds } = req.body;
 
-    const attempt = await ExamAttempt.findOne({ _id: attemptId, user: req.user.id });
-    if (!attempt) {
-      return res.status(404).json({ success: false, message: 'Attempt not found' });
-    }
-
-    if (attempt.status === 'submitted' || attempt.status === 'auto-submitted') {
-      return res.status(400).json({ success: false, message: 'Exam has already been submitted' });
-    }
-
+    const updateData = {};
     if (answers && Array.isArray(answers)) {
-      attempt.answers = answers;
+      updateData.answers = answers;
     }
     if (timeSpentSeconds !== undefined) {
-      attempt.durationSeconds = timeSpentSeconds;
+      updateData.durationSeconds = timeSpentSeconds;
     }
 
-    await attempt.save();
+    const updated = await ExamAttempt.findOneAndUpdate(
+      { _id: attemptId, user: req.user.id, status: 'in-progress' },
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(200).json({ success: true, message: 'Progress recorded or exam already finished' });
+    }
 
     res.json({ success: true, message: 'Progress saved successfully' });
   } catch (error) {
@@ -121,22 +121,27 @@ exports.logViolation = async (req, res) => {
     const { attemptId } = req.params;
     const { type, details } = req.body;
 
-    const attempt = await ExamAttempt.findOne({ _id: attemptId, user: req.user.id });
-    if (!attempt || attempt.status !== 'in-progress') {
-      return res.status(400).json({ success: false, message: 'Invalid or already finished attempt' });
+    const updated = await ExamAttempt.findOneAndUpdate(
+      { _id: attemptId, user: req.user.id, status: 'in-progress' },
+      {
+        $push: {
+          proctorViolations: {
+            type,
+            details: details || '',
+            timestamp: new Date(),
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(200).json({ success: true, violationsCount: 0, message: 'Exam not active or already finalized' });
     }
-
-    attempt.proctorViolations.push({
-      type,
-      details: details || '',
-      timestamp: new Date(),
-    });
-
-    await attempt.save();
 
     res.json({
       success: true,
-      violationsCount: attempt.proctorViolations.length,
+      violationsCount: updated.proctorViolations.length,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -156,8 +161,17 @@ exports.submitAttempt = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Attempt not found' });
     }
 
+    // If already submitted by concurrent request or timeout, return current result safely
     if (attempt.status === 'submitted' || attempt.status === 'auto-submitted') {
-      return res.status(400).json({ success: false, message: 'Exam is already submitted', attemptId: attempt._id });
+      return res.json({
+        success: true,
+        message: 'Exam is already submitted',
+        attemptId: attempt._id,
+        score: attempt.score,
+        maxScore: attempt.maxScore,
+        percentage: attempt.percentage,
+        passed: attempt.passed,
+      });
     }
 
     const exam = await Exam.findById(attempt.exam).populate('questions');
@@ -165,7 +179,7 @@ exports.submitAttempt = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Exam details not found' });
     }
 
-    const submittedAnswers = answers || attempt.answers || [];
+    const submittedAnswers = (answers && answers.length > 0) ? answers : (attempt.answers || []);
     const questionMap = {};
     exam.questions.forEach((q) => {
       questionMap[q._id.toString()] = q;
@@ -222,26 +236,33 @@ exports.submitAttempt = async (req, res) => {
     const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100 * 10) / 10 : 0;
     const passed = percentage >= (exam.passPercentage || 50);
 
-    attempt.answers = gradedAnswers;
-    attempt.score = score;
-    attempt.maxScore = maxScore;
-    attempt.totalQuestions = exam.questions.length;
-    attempt.attemptedCount = attemptedCount;
-    attempt.correctCount = correctCount;
-    attempt.wrongCount = wrongCount;
-    attempt.unansweredCount = unansweredCount;
-    attempt.percentage = percentage;
-    attempt.passed = passed;
-    attempt.durationSeconds = durationSeconds || attempt.durationSeconds || 0;
-    attempt.submittedAt = new Date();
-    attempt.status = isAutoSubmit ? 'auto-submitted' : 'submitted';
-
-    await attempt.save();
+    // Atomically update attempt using findOneAndUpdate to prevent Mongoose version conflicts
+    const updatedAttempt = await ExamAttempt.findOneAndUpdate(
+      { _id: attempt._id, user: req.user.id },
+      {
+        $set: {
+          answers: gradedAnswers,
+          score,
+          maxScore,
+          totalQuestions: exam.questions.length,
+          attemptedCount,
+          correctCount,
+          wrongCount,
+          unansweredCount,
+          percentage,
+          passed,
+          durationSeconds: durationSeconds || attempt.durationSeconds || 0,
+          submittedAt: new Date(),
+          status: isAutoSubmit ? 'auto-submitted' : 'submitted',
+        },
+      },
+      { new: true }
+    );
 
     res.json({
       success: true,
-      message: isAutoSubmit ? 'Exam auto-submitted due to time limit' : 'Exam submitted successfully!',
-      attemptId: attempt._id,
+      message: isAutoSubmit ? 'Exam auto-submitted due to time limit or violations' : 'Exam submitted successfully!',
+      attemptId: (updatedAttempt || attempt)._id,
       score,
       maxScore,
       percentage,
