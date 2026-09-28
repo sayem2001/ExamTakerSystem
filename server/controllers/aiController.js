@@ -68,9 +68,11 @@ exports.processPdf = async (req, res) => {
     let isFallback = false;
 
     if (!questions || questions.length === 0) {
-      if (aiResult.fallback && aiResult.fallback.length > 0) {
-        questions = aiResult.fallback;
-        isFallback = true;
+      if (aiResult.fallback) {
+        questions = Array.isArray(aiResult.fallback)
+          ? aiResult.fallback
+          : (aiResult.fallback.questions || []);
+        if (questions.length > 0) isFallback = true;
       }
     }
 

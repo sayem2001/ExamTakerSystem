@@ -43,6 +43,72 @@ const getActiveApiKey = async (providedKey = '') => {
 };
 
 /**
+ * Robust JSON parser that handles markdown fences, unescaped LaTeX backslashes,
+ * and recovers question blocks even from truncated or imperfect JSON
+ */
+const robustParseJson = (rawText) => {
+  if (!rawText || typeof rawText !== 'string') return null;
+
+  let text = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  // 1. Direct standard parse
+  try {
+    return JSON.parse(text);
+  } catch (err) {}
+
+  // 2. Fix unescaped backslashes commonly introduced by LaTeX formulas (\frac, \times, \approx, etc.)
+  try {
+    const fixedBackslashes = text
+      .replace(/\\/g, '\\\\')
+      .replace(/\\\\(["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\$1');
+    return JSON.parse(fixedBackslashes);
+  } catch (err) {}
+
+  // 3. Regex-based question block extractor
+  const questions = [];
+  const questionRegex = /\{\s*"questionText"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*?"options"\s*:\s*\[([\s\S]*?)\][\s\S]*?"correctOption"\s*:\s*"([A-E])"[\s\S]*?(?:"explanation"\s*:\s*"((?:[^"\\]|\\.)*)")?\s*\}/g;
+
+  let match;
+  while ((match = questionRegex.exec(text)) !== null) {
+    try {
+      const qText = match[1].replace(/\\"/g, '"');
+      const optionsRaw = match[2];
+      const correctOpt = match[3];
+      const explanation = match[4] ? match[4].replace(/\\"/g, '"') : '';
+
+      const optRegex = /\{\s*"key"\s*:\s*"([A-E])"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+      const options = [];
+      let optMatch;
+      while ((optMatch = optRegex.exec(optionsRaw)) !== null) {
+        options.push({
+          key: optMatch[1],
+          text: optMatch[2].replace(/\\"/g, '"'),
+        });
+      }
+
+      if (qText && options.length >= 2) {
+        questions.push({
+          questionText: qText,
+          options,
+          correctOption: correctOpt,
+          explanation,
+        });
+      }
+    } catch (parsePieceErr) {}
+  }
+
+  if (questions.length > 0) {
+    return { questions };
+  }
+
+  throw new Error('Failed to parse questions from model response');
+};
+
+/**
  * Robust caller across candidate Gemini models with priority on gemini-3.8-flash
  */
 const callGeminiCandidateModels = async ({ genAI, modelCandidates, contents }) => {
@@ -63,13 +129,12 @@ const callGeminiCandidateModels = async ({ genAI, modelCandidates, contents }) =
 
         const result = await model.generateContent(contents);
         const response = await result.response;
-        let text = response.text().trim();
+        const rawText = response.text().trim();
 
-        // Clean any accidental markdown fence
-        text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-        const parsed = JSON.parse(text);
-
-        return { parsed, modelUsed: modelName };
+        const parsed = robustParseJson(rawText);
+        if (parsed) {
+          return { parsed, modelUsed: modelName };
+        }
       } catch (err) {
         lastError = err;
         console.warn(`Model ${modelName} attempt ${attempt + 1} failed: ${err.status || err.message}`);
@@ -91,7 +156,7 @@ const callGeminiCandidateModels = async ({ genAI, modelCandidates, contents }) =
 
 /**
  * Optimized question generator modeled after the Gemini App
- * Uses gemini-3.8-flash as primary model and accepts native PDF inlineData or direct text
+ * Uses gemini-3.8-flash as primary model with fast fallback candidates
  */
 const generateMCQsWithGemini = async ({
   pdfPath = null,
@@ -106,7 +171,11 @@ const generateMCQsWithGemini = async ({
 
   if (!activeKey) {
     console.warn('⚠️ No Gemini API Key configured. Generating intelligent fallback questions.');
-    return generateFallbackQuestions(targetTopic, targetDifficulty, targetCount);
+    const fallbackObj = generateFallbackQuestions(targetTopic, targetDifficulty, targetCount);
+    return {
+      success: false,
+      fallback: fallbackObj.questions || fallbackObj,
+    };
   }
 
   const genAI = new GoogleGenerativeAI(activeKey);
@@ -130,7 +199,7 @@ const generateMCQsWithGemini = async ({
 
   const prompt = `
 You are an expert exam question creator.
-Analyze the provided document/math content and create EXACTLY ${targetCount} brand-new multiple-choice questions (MCQs) for "${targetTopic}" at ${targetDifficulty.toUpperCase()} difficulty.
+Based on the provided document/math content, create EXACTLY ${targetCount} brand-new multiple-choice questions (MCQs) for "${targetTopic}" at ${targetDifficulty.toUpperCase()} difficulty.
 
 MODIFICATION RULE (${targetDifficulty.toUpperCase()}):
 ${selectedRule}
@@ -164,33 +233,21 @@ Return ONLY a valid raw JSON object (no markdown, no backticks):
 You MUST output all ${targetCount} questions in the "questions" array.
 `;
 
-  // Prepare contents payload: Native PDF base64 if available, otherwise direct text
-  let contents = [];
-  if (pdfPath && fs.existsSync(pdfPath)) {
+  // Prepare text payload (text-first ensures high reliability without 503 upload spikes)
+  let textContent = pdfText;
+  if (!textContent && pdfPath && fs.existsSync(pdfPath)) {
     try {
-      const stats = fs.statSync(pdfPath);
-      // If PDF file is under 15MB, send as native inlineData
-      if (stats.size < 15 * 1024 * 1024) {
-        const base64Data = fs.readFileSync(pdfPath).toString('base64');
-        contents = [
-          { inlineData: { data: base64Data, mimeType: 'application/pdf' } },
-          prompt,
-        ];
-        console.log(`Sending native PDF (${Math.round(stats.size / 1024)} KB) directly to Gemini API`);
-      }
-    } catch (readErr) {
-      console.warn('Could not read PDF for inlineData, falling back to text:', readErr.message);
+      const parsed = await extractTextFromPDF(pdfPath);
+      textContent = parsed.text;
+    } catch (e) {
+      console.warn('PDF text extraction error:', e.message);
     }
   }
 
-  // Fallback to text payload if PDF was not attached or too large
-  if (contents.length === 0) {
-    const trimmedText = (pdfText || '').slice(0, 45000);
-    contents = [
-      `DOCUMENT SOURCE CONTENT:\n---\n${trimmedText}\n---\n\n${prompt}`,
-    ];
-    console.log(`Sending extracted text (${trimmedText.length} chars) to Gemini API`);
-  }
+  const trimmedText = (textContent || '').slice(0, 35000);
+  const contents = [
+    `DOCUMENT SOURCE CONTENT:\n---\n${trimmedText}\n---\n\n${prompt}`,
+  ];
 
   try {
     const { parsed, modelUsed } = await callGeminiCandidateModels({
@@ -236,9 +293,10 @@ You MUST output all ${targetCount} questions in the "questions" array.
 
   // Fallback if all attempts failed
   console.warn('Falling back to standard verified math question bank');
+  const fallbackObj = generateFallbackQuestions(targetTopic, targetDifficulty, targetCount);
   return {
     success: false,
-    fallback: generateFallbackQuestions(targetTopic, targetDifficulty, targetCount),
+    fallback: fallbackObj.questions || fallbackObj,
   };
 };
 
