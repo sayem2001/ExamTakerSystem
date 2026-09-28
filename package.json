@@ -2,6 +2,9 @@
   "name": "exam-taker-system",
   "version": "1.0.0",
   "description": "Enterprise AI-Powered Mathematical Examination Platform with Proctoring, Anti-Cheat, and Leaderboards",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "cd client && npm install --include=dev && npm run build && cd ../server && npm install",
     "start": "cd server && node server.js",
