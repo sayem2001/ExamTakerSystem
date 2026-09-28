@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "Enterprise AI-Powered Mathematical Examination Platform with Proctoring, Anti-Cheat, and Leaderboards",
   "scripts": {
-    "install:all": "cd server && npm install && cd ../client && npm install",
-    "build": "cd client && npm install && npm run build",
+    "build": "cd client && npm install --include=dev && npm run build && cd ../server && npm install",
     "start": "cd server && node server.js",
+    "install:all": "cd server && npm install && cd ../client && npm install",
     "dev:server": "cd server && node --watch server.js",
     "dev:client": "cd client && npm run dev"
   },
