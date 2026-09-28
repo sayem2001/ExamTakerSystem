@@ -62,22 +62,22 @@ const generateMCQsWithGemini = async ({
 
   const genAI = new GoogleGenerativeAI(activeKey);
 
-  // Preferred models in priority order for current Google AI Studio key
+  // Preferred models in priority order for Google AI Studio
   const modelCandidates = [
+    'gemini-flash-lite-latest',
     'gemini-flash-latest',
     'gemini-3.8-flash',
-    'gemini-3.7-flash',
     'gemini-3.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-pro',
+    'gemini-pro-latest',
+    'gemini-2.5-pro',
   ];
 
-  // Slice text into manageable chunks if too large (e.g. max ~40,000 chars per prompt)
-  const trimmedText = pdfText.slice(0, 45000);
+  // Slice text into manageable chunks if too large (e.g. max ~50,000 chars per prompt)
+  const trimmedText = pdfText.slice(0, 50000);
 
   const prompt = `
-You are an expert mathematical exam creator. Analyze the following document text and extract or formulate structured multiple-choice questions (MCQs).
+You are an expert mathematical exam question extractor and creator.
+Analyze the following document content and extract or generate multiple-choice questions (MCQs).
 
 DOCUMENT CONTENT:
 ---
@@ -85,30 +85,29 @@ ${trimmedText}
 ---
 
 REQUIREMENTS:
-1. Target Topic: "${targetTopic}".
-2. Target Difficulty: "${targetDifficulty}" (If "auto", classify each question as "easy", "medium", or "hard" based on the depth of mathematical concepts involved:
-   - "easy": direct formula application, basic definitions, 1-step arithmetic or algebraic operations.
-   - "medium": 2-3 step derivations, standard calculus, matrices, probability, requiring synthesis of concepts.
-   - "hard": multi-step proofs, non-trivial integrals/derivatives, abstract algebra, advanced optimization, counter-intuitive probability).
-3. Produce up to ${questionCount} high quality, distinct MCQs.
-4. Each question MUST have:
-   - "questionText": Clear question statement (format mathematical expressions cleanly using LaTeX like $x^2 + 5x = 0$ or plain text).
-   - "difficulty": "easy" | "medium" | "hard"
-   - "topic": "${targetTopic}"
-   - "options": An array of exactly 4 objects: [{"key": "A", "text": "..."}, {"key": "B", "text": "..."}, {"key": "C", "text": "..."}, {"key": "D", "text": "..."}]
-   - "correctOption": Exactly one of "A", "B", "C", or "D"
-   - "explanation": Step-by-step mathematical reasoning and derivation showing why the answer is correct.
+1. Topic: Detect the main mathematical or quantitative topic of the document (e.g. "Profit and Loss", "Business Mathematics", "Algebra", "Calculus", etc.). If target topic "${targetTopic}" is provided, prioritize it unless the document is specifically about a different quantitative topic.
+2. Question Extraction:
+   - Extract the actual multiple choice questions, past paper questions, and practice problems from the document text.
+   - Retain mathematical notation and formulas using LaTeX (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, percentages, etc.) or clean clear text.
+   - Extract the answer choices (A, B, C, D, and E if present). Ensure each question has between 4 and 5 options with keys "A", "B", "C", "D" (and "E" if present).
+   - If the document contains answer keys or solutions (such as "Answers of past paper questions", "Solutions to Past Paper Questions"), use the provided correct answer and explanation.
+   - If answers are not explicitly marked in the text, solve the question accurately to determine the correctOption and provide a step-by-step mathematical explanation.
+3. Target Difficulty: "${targetDifficulty}" (Classify each question as "easy", "medium", or "hard"):
+   - "easy": direct formula application, 1-step arithmetic or basic concepts.
+   - "medium": 2-3 step calculations, standard quantitative problem solving.
+   - "hard": multi-step derivations, tricky word problems, optimization.
+4. Extract up to ${questionCount} distinct, high-quality questions.
 
 OUTPUT FORMAT:
 Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, just the pure JSON string):
 {
-  "detectedTopic": "${targetTopic}",
+  "detectedTopic": "Profit and Loss",
   "totalExtracted": 0,
   "questions": [
     {
       "questionText": "...",
-      "difficulty": "easy",
-      "topic": "${targetTopic}",
+      "difficulty": "medium",
+      "topic": "Profit and Loss",
       "options": [
         {"key": "A", "text": "..."},
         {"key": "B", "text": "..."},
@@ -135,10 +134,10 @@ Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, 
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      let text = response.text();
+      let text = response.text().trim();
 
       // Clean any accidental markdown fence
-      text = text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+      text = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed = JSON.parse(text);
 
       if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
@@ -151,8 +150,12 @@ Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, 
         };
       }
     } catch (err) {
-      console.warn(`Attempt with ${modelName} failed: ${err.message}. Trying next candidate...`);
+      console.warn(`Attempt with ${modelName} failed (${err.status || err.message}). Trying next candidate...`);
       lastError = err;
+      // Brief pause if rate-limited or server error
+      if (err.status === 503 || err.status === 429) {
+        await new Promise((r) => setTimeout(r, 600));
+      }
     }
   }
 
@@ -160,7 +163,7 @@ Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, 
   // Fallback if API fails or quota exceeded
   return {
     success: false,
-    error: lastError ? lastError.message : 'Gemini extraction failed',
+    error: lastError ? (lastError.message || `Error code ${lastError.status}`) : 'Gemini extraction failed',
     fallback: generateFallbackQuestions(targetTopic, targetDifficulty, questionCount),
   };
 };

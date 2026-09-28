@@ -37,17 +37,35 @@ exports.processPdf = async (req, res) => {
       questionCount: parseInt(questionCount, 10) || 30,
     });
 
-    const questions = aiResult.questions || [];
+    let questions = aiResult.questions || [];
+    let isFallback = false;
+
+    if (!questions || questions.length === 0) {
+      if (aiResult.fallback && aiResult.fallback.length > 0) {
+        questions = aiResult.fallback;
+        isFallback = true;
+      }
+    }
+
+    if (!questions || questions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: aiResult.error || 'Could not extract questions from this document. Please verify the document contains question text.',
+      });
+    }
+
+    const detectedTopic = aiResult.detectedTopic || topic;
 
     res.json({
       success: true,
-      message: `Successfully extracted ${questions.length} questions from PDF`,
+      message: `Successfully extracted ${questions.length} questions from PDF${isFallback ? ' (using verified standard question bank)' : ''}`,
       meta: {
         originalName: req.file.originalname,
         filename: req.file.filename,
         numPages,
-        detectedTopic: aiResult.detectedTopic || topic,
-        modelUsed: aiResult.modelUsed,
+        detectedTopic,
+        modelUsed: aiResult.modelUsed || (isFallback ? 'fallback-standard-bank' : 'gemini'),
+        isFallback,
       },
       questions,
     });

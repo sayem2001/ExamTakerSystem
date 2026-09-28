@@ -40,6 +40,30 @@ export const AdminAiPdfImport = () => {
       }
       setPdfFile(file);
       setError('');
+
+      // Auto-detect topic from filename
+      const filename = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+      if (/profit|loss/i.test(filename)) {
+        setTopic('Profit and Loss');
+      } else if (/calculus|integral|derivative/i.test(filename)) {
+        setTopic('Calculus');
+      } else if (/algebra|matrix|vector/i.test(filename)) {
+        setTopic('Linear Algebra');
+      } else if (/geometry/i.test(filename)) {
+        setTopic('Geometry');
+      } else if (/trigonometry/i.test(filename)) {
+        setTopic('Trigonometry');
+      } else if (/probability|statistics/i.test(filename)) {
+        setTopic('Probability & Statistics');
+      } else {
+        const cleaned = filename
+          .replace(/^ACS\s*IBA\s*Math\s*Quant\s*/i, '')
+          .replace(/^Chapter\s*\d+\s*/i, '')
+          .trim();
+        if (cleaned.length > 2) {
+          setTopic(cleaned.charAt(0).toUpperCase() + cleaned.slice(1));
+        }
+      }
     }
   };
 
@@ -71,12 +95,13 @@ export const AdminAiPdfImport = () => {
         throw new Error(res.message || 'No questions could be extracted from PDF.');
       }
 
+      const effectiveTopic = res.meta?.detectedTopic || topic.trim();
       setExtractedQuestions(res.questions);
 
       if (mode === 'auto-3-exams') {
         setProgressMsg('Auto-synthesizing 3 exams: Easy, Medium, and Hard...');
         const autoRes = await api.autoCreateThreeExams({
-          topic: topic.trim(),
+          topic: effectiveTopic,
           questions: res.questions,
           pdfDocument: {
             filename: res.meta?.filename,
