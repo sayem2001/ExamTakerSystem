@@ -5,36 +5,62 @@ const Question = require('../models/Question');
 const Exam = require('../models/Exam');
 const Topic = require('../models/Topic');
 
-// @desc    Process uploaded PDF with Gemini API to extract MCQs
+// @desc    Process uploaded PDF or directly pasted text with Gemini API to extract MCQs
 // @route   POST /api/ai/process-pdf
 // @access  Private (Admin only)
 exports.processPdf = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'Please upload a PDF file' });
+    const {
+      topic = 'General Mathematics',
+      difficulty = 'medium',
+      questionCount = 30,
+      pastedText = '',
+    } = req.body;
+
+    let text = '';
+    let numPages = 1;
+    let originalName = 'Pasted Text';
+    let filename = `pasted-text-${Date.now()}`;
+    let isDirectPaste = false;
+
+    if (req.file) {
+      const filePath = req.file.path;
+      originalName = req.file.originalname;
+      filename = req.file.filename;
+      console.log(`Processing PDF: ${originalName} (${req.file.size} bytes)`);
+
+      const pdfData = await extractTextFromPDF(filePath);
+      text = pdfData.text;
+      numPages = pdfData.numPages || 1;
+    } else {
+      const rawText = pastedText || req.body.text || '';
+      if (rawText && rawText.trim().length > 0) {
+        text = rawText.trim();
+        isDirectPaste = true;
+        originalName = 'Directly Pasted Text';
+        console.log(`Processing direct pasted text (${text.length} characters)`);
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Please upload a PDF document or paste question text directly.',
+        });
+      }
     }
-
-    const filePath = req.file.path;
-    const { topic = 'Higher Mathematics', difficulty = 'auto', questionCount = 30 } = req.body;
-
-    console.log(`Processing PDF: ${req.file.originalname} (${req.file.size} bytes)`);
-
-    // 1. Extract text from PDF
-    const { text, numPages, info } = await extractTextFromPDF(filePath);
 
     if (!text || text.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Could not extract text from this PDF. It may contain scanned images without OCR.',
+        message: 'Could not find readable text. Ensure the PDF contains readable text (or paste text directly).',
       });
     }
 
-    // 2. Call Gemini service
+    // Call Gemini service
+    const targetCount = parseInt(questionCount, 10) || 30;
     const aiResult = await generateMCQsWithGemini({
       pdfText: text,
       targetTopic: topic,
       targetDifficulty: difficulty,
-      questionCount: parseInt(questionCount, 10) || 30,
+      questionCount: targetCount,
     });
 
     let questions = aiResult.questions || [];
@@ -50,7 +76,7 @@ exports.processPdf = async (req, res) => {
     if (!questions || questions.length === 0) {
       return res.status(400).json({
         success: false,
-        message: aiResult.error || 'Could not extract questions from this document. Please verify the document contains question text.',
+        message: aiResult.error || 'Could not synthesize questions from the provided input.',
       });
     }
 
@@ -58,20 +84,21 @@ exports.processPdf = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully extracted ${questions.length} questions from PDF${isFallback ? ' (using verified standard question bank)' : ''}`,
+      message: `Successfully synthesized ${questions.length} questions from ${isDirectPaste ? 'pasted text' : 'PDF'}${isFallback ? ' (using verified standard bank)' : ''}`,
       meta: {
-        originalName: req.file.originalname,
-        filename: req.file.filename,
+        originalName,
+        filename,
         numPages,
         detectedTopic,
         modelUsed: aiResult.modelUsed || (isFallback ? 'fallback-standard-bank' : 'gemini'),
         isFallback,
+        isDirectPaste,
       },
       questions,
     });
   } catch (error) {
     console.error('processPdf error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Error processing PDF with Gemini' });
+    res.status(500).json({ success: false, message: error.message || 'Error processing document with Gemini' });
   }
 };
 

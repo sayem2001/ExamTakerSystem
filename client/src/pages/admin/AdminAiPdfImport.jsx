@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
+  ArrowLeft,
   Copy,
   Check,
   Calendar,
@@ -18,16 +19,21 @@ import {
   Sliders,
   RefreshCw,
   Eye,
+  Trash2,
 } from 'lucide-react';
 
 export const AdminAiPdfImport = () => {
   const navigate = useNavigate();
 
-  // Wizard Steps: 1 = Upload & Configure, 2 = Review Questions, 3 = Schedule Exam, 4 = Success
+  // Wizard Steps: 1 = Upload / Input, 2 = Review Questions, 3 = Schedule Exam, 4 = Published & Active
   const [step, setStep] = useState(1);
+
+  // Input source mode: 'pdf' | 'paste'
+  const [inputMode, setInputMode] = useState('pdf');
 
   // Configuration state
   const [pdfFile, setPdfFile] = useState(null);
+  const [pastedText, setPastedText] = useState('');
   const [topic, setTopic] = useState('Profit and Loss');
   const [questionCount, setQuestionCount] = useState(30);
   const [difficulty, setDifficulty] = useState('medium'); // 'easy' | 'medium' | 'hard'
@@ -97,10 +103,41 @@ export const AdminAiPdfImport = () => {
     }
   };
 
-  // Step 1 -> Process PDF with Gemini AI
-  const handleProcessPdf = async () => {
-    if (!pdfFile) {
-      setError('Please upload an examination PDF first.');
+  // Auto-detect topic from direct pasted text if topic is empty or default
+  const handlePastedTextChange = (text) => {
+    setPastedText(text);
+    setError('');
+    if (text.length > 15) {
+      if (/profit|loss|selling\s*price|cost\s*price|markup|discount/i.test(text)) {
+        setTopic('Profit and Loss');
+      } else if (/simple\s*interest|compound\s*interest|principal|per\s*annum/i.test(text)) {
+        setTopic('Simple & Compound Interest');
+      } else if (/speed|distance|train|stream|boat|km\/h/i.test(text)) {
+        setTopic('Time, Speed & Distance');
+      } else if (/ratio|proportion|mixture|alligation/i.test(text)) {
+        setTopic('Ratio & Proportion');
+      } else if (/work|pipe|cistern|men\s*and\s*women/i.test(text)) {
+        setTopic('Time & Work');
+      } else if (/derivative|integral|limit|calculus|tangent/i.test(text)) {
+        setTopic('Calculus');
+      } else if (/quadratic|equation|polynomial|matrix|algebra/i.test(text)) {
+        setTopic('Algebra');
+      } else if (/triangle|circle|polygon|perimeter|area|angle|geometry/i.test(text)) {
+        setTopic('Geometry');
+      } else if (/permutation|combination|probability|dice|card/i.test(text)) {
+        setTopic('Probability & Permutation');
+      }
+    }
+  };
+
+  // Step 1 -> Process with Gemini AI (supports both PDF and direct pasted text)
+  const handleProcessQuestions = async () => {
+    if (inputMode === 'pdf' && !pdfFile) {
+      setError('Please upload an examination PDF document first.');
+      return;
+    }
+    if (inputMode === 'paste' && !pastedText.trim()) {
+      setError('Please paste examination question text into the text area first.');
       return;
     }
     if (!topic.trim()) {
@@ -110,20 +147,30 @@ export const AdminAiPdfImport = () => {
 
     setProcessing(true);
     setError('');
-    setProgressMsg('Extracting document text and scanning problem archetypes...');
+    setProgressMsg(
+      inputMode === 'pdf'
+        ? `Extracting text from PDF and scanning problem archetypes...`
+        : `Scanning pasted problems and analyzing archetypes...`
+    );
 
     try {
       const formData = new FormData();
-      formData.append('pdf', pdfFile);
+      if (inputMode === 'pdf') {
+        formData.append('pdf', pdfFile);
+      } else {
+        formData.append('pastedText', pastedText.trim());
+      }
       formData.append('topic', topic.trim());
       formData.append('questionCount', questionCount);
       formData.append('difficulty', difficulty);
 
-      setProgressMsg(`Synthesizing ${questionCount} ${difficulty.toUpperCase()} questions (applying transformation rules)...`);
+      setProgressMsg(
+        `Synthesizing ${questionCount} ${difficulty.toUpperCase()} questions in batches with step-by-step derivations...`
+      );
       const res = await api.uploadAndProcessPdf(formData);
 
       if (!res.success || !res.questions || res.questions.length === 0) {
-        throw new Error(res.message || 'No questions could be synthesized from PDF.');
+        throw new Error(res.message || 'No questions could be synthesized.');
       }
 
       const effectiveTopic = res.meta?.detectedTopic || topic.trim();
@@ -136,10 +183,12 @@ export const AdminAiPdfImport = () => {
         const autoRes = await api.autoCreateThreeExams({
           topic: effectiveTopic,
           questions: res.questions,
-          pdfDocument: {
-            filename: res.meta?.filename,
-            originalName: res.meta?.originalName,
-          },
+          pdfDocument: res.meta?.filename
+            ? {
+                filename: res.meta.filename,
+                originalName: res.meta.originalName,
+              }
+            : undefined,
         });
 
         if (autoRes.success) {
@@ -147,13 +196,12 @@ export const AdminAiPdfImport = () => {
           setStep(4);
         }
       } else {
-        // Pre-fill schedule title
         setScheduleTitle(`${effectiveTopic} Assessment (${difficulty.toUpperCase()} Tier)`);
         setStep(2); // Proceed to Review Step
       }
     } catch (err) {
-      console.error('PDF AI processing error:', err);
-      setError(err.message || 'Failed to process PDF with Gemini');
+      console.error('AI Question synthesis error:', err);
+      setError(err.message || 'Failed to synthesize questions with Gemini');
     } finally {
       setProcessing(false);
       setProgressMsg('');
@@ -218,33 +266,43 @@ export const AdminAiPdfImport = () => {
     switch (diff) {
       case 'easy':
         return {
-          title: 'Easy: Numerical Variation',
+          title: 'Easy: Numerical Variation Only',
           color: '#34d399',
           bg: 'rgba(16, 185, 129, 0.1)',
           border: 'rgba(16, 185, 129, 0.3)',
-          desc: 'Preserves the identical 1-step problem structure, but changes all numbers, values, and entities with newly recalculated options & solutions.',
+          desc: 'Preserves the identical 1-step logic and formula structure. All numbers, values, and entities are uniquely changed, with newly recalculated options & step-by-step solutions.',
         };
       case 'hard':
         return {
-          title: 'Hard: Complex Word Problem',
+          title: 'Hard: Complex Word Problem & Multi-Tier Constraints',
           color: '#f43f5e',
           bg: 'rgba(244, 63, 94, 0.1)',
           border: 'rgba(244, 63, 94, 0.3)',
-          desc: 'Synthesizes challenging multi-tier word problems with realistic real-world constraints (e.g. faulty weights, fractional spoilage, compound algebraic equations).',
+          desc: 'Synthesizes challenging multi-tier word problems with realistic real-world constraints (e.g. faulty weights, fractional spoilage, tiered bulk rates, compound algebraic equations).',
         };
       case 'medium':
       default:
         return {
-          title: 'Medium: Conceptual Extension',
+          title: 'Medium: Conceptual Extension & Secondary Step',
           color: '#fbbf24',
           bg: 'rgba(245, 158, 11, 0.1)',
           border: 'rgba(245, 158, 11, 0.3)',
-          desc: 'Adds a secondary calculation step, inverts unknown variables (e.g. solve for original cost), or combines sequential discounts/taxes.',
+          desc: 'Adds a secondary calculation step, inverts unknown variables (e.g. solve for original cost given final selling price), or combines sequential discounts/taxes.',
         };
     }
   };
 
   const currentDiffInfo = getDifficultyInfo(difficulty);
+
+  const resetAll = () => {
+    setPdfFile(null);
+    setPastedText('');
+    setExtractedQuestions([]);
+    setSingleScheduledExam(null);
+    setCreatedExams([]);
+    setError('');
+    setStep(1);
+  };
 
   return (
     <div style={{ maxWidth: '1100px', margin: '2.5rem auto 5rem', padding: '0 1.5rem' }}>
@@ -253,41 +311,88 @@ export const AdminAiPdfImport = () => {
       <div style={{ marginBottom: '2.5rem' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#c084fc', fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px' }}>
           <Sparkles size={18} />
-          <span>Gemini AI Intelligent PDF Exam Creator</span>
+          <span>Gemini AI Intelligent Exam Creator</span>
         </div>
         <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem' }}>
-          AI PDF Exam Generator & Scheduler
+          AI Exam Generator & Scheduler
         </h1>
-        <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '800px' }}>
-          Upload math examination PDFs. The AI scans the problem archetypes and synthesizes customized, brand-new MCQs at your selected difficulty level without copy-pasting the original.
+        <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '820px' }}>
+          Upload math examination PDFs or paste problem sets directly. Gemini AI analyzes problem archetypes and synthesizes customized, brand-new MCQs at your selected difficulty level without copy-pasting the original.
         </p>
 
-        {/* Wizard Step Indicators */}
-        <div style={{ display: 'flex', gap: '8px', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+        {/* Wizard Step Indicators (Fully Clickable for Easy Forward & Backward Navigation) */}
+        <div style={{ display: 'flex', gap: '10px', marginTop: '1.5rem', flexWrap: 'wrap' }}>
           {[
-            { num: 1, label: '1. Upload & Difficulty Rule' },
-            { num: 2, label: '2. Review Synthesized Questions' },
-            { num: 3, label: '3. Schedule & Proctoring' },
-            { num: 4, label: '4. Published & Active' },
-          ].map((s) => (
-            <div
-              key={s.num}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '8px',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                background: step === s.num ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                border: step === s.num ? '1px solid #6366f1' : '1px solid var(--border-subtle)',
-                color: step === s.num ? '#a5b4fc' : '#64748b',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <span>{s.label}</span>
-            </div>
-          ))}
+            { num: 1, label: 'Upload & Difficulty' },
+            { num: 2, label: `Review Questions (${extractedQuestions.length})` },
+            { num: 3, label: 'Schedule & Proctoring' },
+            { num: 4, label: 'Published & Active' },
+          ].map((s) => {
+            const isClickable =
+              s.num === 1 ||
+              (s.num <= 3 && extractedQuestions.length > 0) ||
+              (s.num === 4 && (singleScheduledExam || createdExams.length > 0));
+            const isActive = step === s.num;
+
+            return (
+              <button
+                key={s.num}
+                type="button"
+                onClick={() => {
+                  if (isClickable) {
+                    setError('');
+                    setStep(s.num);
+                  }
+                }}
+                disabled={!isClickable}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: '10px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  background: isActive
+                    ? 'rgba(99, 102, 241, 0.25)'
+                    : isClickable
+                    ? 'rgba(255, 255, 255, 0.04)'
+                    : 'rgba(255, 255, 255, 0.01)',
+                  border: isActive
+                    ? '1.5px solid #6366f1'
+                    : isClickable
+                    ? '1px solid rgba(99, 102, 241, 0.3)'
+                    : '1px solid var(--border-subtle)',
+                  color: isActive ? '#a5b4fc' : isClickable ? '#cbd5e1' : '#475569',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: isClickable ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.15s ease',
+                  boxShadow: isActive ? '0 0 16px rgba(99, 102, 241, 0.25)' : 'none',
+                }}
+              >
+                {s.num < step && extractedQuestions.length > 0 ? (
+                  <CheckCircle2 size={16} color="#34d399" />
+                ) : (
+                  <span
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      background: isActive ? '#6366f1' : 'rgba(255, 255, 255, 0.08)',
+                      color: isActive ? '#fff' : 'inherit',
+                      fontSize: '0.75rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {s.num}
+                  </span>
+                )}
+                <span>{s.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -308,71 +413,206 @@ export const AdminAiPdfImport = () => {
         </div>
       )}
 
-      {/* ================= STEP 1: UPLOAD & DIFFICULTY ================= */}
+      {/* ================= STEP 1: UPLOAD / DIRECT PASTE & DIFFICULTY ================= */}
       {step === 1 && (
         <div className="glass-card" style={{ padding: '2.5rem', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
           
-          {/* Dropzone */}
+          {/* Mode Switcher: PDF Upload vs Direct Text Paste */}
           <div style={{
-            border: '2px dashed rgba(99, 102, 241, 0.4)',
-            borderRadius: '16px',
-            padding: '2.5rem 2rem',
-            textAlign: 'center',
-            background: 'rgba(99, 102, 241, 0.03)',
-            marginBottom: '2rem',
-            position: 'relative',
-            cursor: 'pointer',
+            display: 'flex',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: '12px',
+            padding: '4px',
+            marginBottom: '1.75rem',
+            gap: '4px',
           }}>
-            <input
-              type="file"
-              accept=".pdf"
-              onChange={handleFileChange}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                opacity: 0,
-                cursor: 'pointer',
+            <button
+              type="button"
+              onClick={() => {
+                setInputMode('pdf');
+                setError('');
               }}
-            />
-            <div style={{
-              width: '56px',
-              height: '56px',
-              borderRadius: '12px',
-              background: 'rgba(99, 102, 241, 0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 1rem',
-            }}>
-              <UploadCloud size={28} color="#818cf8" />
-            </div>
+              style={{
+                flex: 1,
+                padding: '11px 16px',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                background: inputMode === 'pdf' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'transparent',
+                color: inputMode === 'pdf' ? '#fff' : '#94a3b8',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'all 0.2s',
+              }}
+            >
+              <UploadCloud size={18} />
+              <span>Upload Exam PDF</span>
+            </button>
 
-            {pdfFile ? (
-              <div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#34d399' }}>
-                  📄 {pdfFile.name}
-                </div>
-                <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
-                  {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB • Ready for AI Synthesis
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>
-                  Click to select or drag and drop your exam PDF
-                </div>
-                <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '6px' }}>
-                  Extracts complete document text and identifies diverse question types
-                </div>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setInputMode('paste');
+                setError('');
+              }}
+              style={{
+                flex: 1,
+                padding: '11px 16px',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                background: inputMode === 'paste' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'transparent',
+                color: inputMode === 'paste' ? '#fff' : '#94a3b8',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'all 0.2s',
+              }}
+            >
+              <FileText size={18} />
+              <span>Direct Question / Text Paste</span>
+            </button>
           </div>
+
+          {/* TAB A: PDF DROPZONE */}
+          {inputMode === 'pdf' && (
+            <div style={{
+              border: '2px dashed rgba(99, 102, 241, 0.4)',
+              borderRadius: '16px',
+              padding: '2.5rem 2rem',
+              textAlign: 'center',
+              background: 'rgba(99, 102, 241, 0.03)',
+              marginBottom: '2rem',
+              position: 'relative',
+              cursor: 'pointer',
+            }}>
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={handleFileChange}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  opacity: 0,
+                  cursor: 'pointer',
+                }}
+              />
+              <div style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '12px',
+                background: 'rgba(99, 102, 241, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 1rem',
+              }}>
+                <UploadCloud size={28} color="#818cf8" />
+              </div>
+
+              {pdfFile ? (
+                <div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#34d399' }}>
+                    📄 {pdfFile.name}
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
+                    {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB • Ready for AI Synthesis
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPdfFile(null);
+                    }}
+                    style={{
+                      marginTop: '10px',
+                      background: 'rgba(244, 63, 94, 0.15)',
+                      border: '1px solid rgba(244, 63, 94, 0.3)',
+                      color: '#fda4af',
+                      padding: '4px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Change / Remove File
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>
+                    Click to select or drag and drop your exam PDF
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '6px' }}>
+                    Extracts complete document text and identifies diverse question archetypes
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB B: DIRECT QUESTION TEXT PASTE */}
+          {inputMode === 'paste' && (
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1' }}>
+                  Paste Exam Questions, Problems, or Chapter Material:
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                    {pastedText.trim().split(/\s+/).filter(Boolean).length} words • {pastedText.length} characters
+                  </span>
+                  {pastedText && (
+                    <button
+                      type="button"
+                      onClick={() => setPastedText('')}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#f43f5e',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <Trash2 size={12} />
+                      <span>Clear</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <textarea
+                className="form-input"
+                rows={10}
+                placeholder={`Paste your problem set, questions, or chapter exercises directly here...\n\nExample:\n1. A shopkeeper sells an article at 20% profit. If cost price increases by 10% and selling price increases by $26, the profit becomes 25%. What was the original cost price?\n2. A certain desk costs a shopkeeper taka 80. At what price must he sell it if he is to make a profit of 25% on the selling price?\n3. An item marked at $150 is sold after two successive discounts of 10% and 5%...`}
+                value={pastedText}
+                onChange={(e) => handlePastedTextChange(e.target.value)}
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.9rem',
+                  lineHeight: 1.6,
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+          )}
 
           {/* Form Options */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
-                Mathematical Topic (Auto-Detected)
+                Mathematical Topic / Chapter
               </label>
               <input
                 type="text"
@@ -394,7 +634,9 @@ export const AdminAiPdfImport = () => {
                 onChange={(e) => setQuestionCount(parseInt(e.target.value, 10))}
               >
                 <option value={10}>10 Questions (Short Test)</option>
+                <option value={15}>15 Questions (Standard Practice)</option>
                 <option value={20}>20 Questions (Standard Quiz)</option>
+                <option value={25}>25 Questions (Section Exam)</option>
                 <option value={30}>30 Questions (Full Assessment)</option>
                 <option value={40}>40 Questions (Comprehensive Exam)</option>
                 <option value={50}>50 Questions (Mega Bank)</option>
@@ -510,16 +752,31 @@ export const AdminAiPdfImport = () => {
             </div>
           )}
 
-          {/* Action */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {extractedQuestions.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="btn-secondary"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span>View Generated Questions ({extractedQuestions.length})</span>
+                <ArrowRight size={16} />
+              </button>
+            ) : <div />}
+
             <button
-              onClick={handleProcessPdf}
-              disabled={!pdfFile || processing}
+              onClick={handleProcessQuestions}
+              disabled={(inputMode === 'pdf' ? !pdfFile : !pastedText.trim()) || processing}
               className="btn-primary"
               style={{
                 padding: '14px 32px',
                 fontSize: '1rem',
                 background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
               }}
             >
               {processing ? (
@@ -560,18 +817,18 @@ export const AdminAiPdfImport = () => {
                 Synthesized Questions ({extractedQuestions.length})
               </h2>
               <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-                All questions have been uniquely modified and solved. Review below before setting the exam schedule.
+                All questions have been uniquely modified and solved. Review below before proceeding to schedule.
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <button
                 onClick={() => setStep(1)}
                 className="btn-secondary"
-                style={{ padding: '10px 16px', fontSize: '0.85rem' }}
+                style={{ padding: '10px 18px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                <RefreshCw size={14} />
-                <span>Re-configure</span>
+                <ArrowLeft size={16} />
+                <span>Back to Upload / Input</span>
               </button>
 
               <button
@@ -581,6 +838,9 @@ export const AdminAiPdfImport = () => {
                   padding: '10px 24px',
                   fontSize: '0.9rem',
                   background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
                 }}
               >
                 <span>Proceed to Schedule Exam</span>
@@ -654,8 +914,17 @@ export const AdminAiPdfImport = () => {
             ))}
           </div>
 
-          {/* Bottom Next Button */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2rem' }}>
+          {/* Bottom Navigation Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem' }}>
+            <button
+              onClick={() => setStep(1)}
+              className="btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <ArrowLeft size={16} />
+              <span>Back to Upload / Input</span>
+            </button>
+
             <button
               onClick={() => setStep(3)}
               className="btn-primary"
@@ -663,6 +932,9 @@ export const AdminAiPdfImport = () => {
                 padding: '14px 32px',
                 fontSize: '1rem',
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
               }}
             >
               <span>Proceed to Schedule Exam</span>
@@ -676,16 +948,32 @@ export const AdminAiPdfImport = () => {
       {step === 3 && (
         <div className="glass-card" style={{ padding: '2.5rem', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
           <div style={{ marginBottom: '2rem' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#34d399', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>
-              <Calendar size={18} />
-              <span>Step 3: Assessment Scheduling</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#34d399', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>
+                  <Calendar size={18} />
+                  <span>Step 3: Assessment Scheduling</span>
+                </div>
+                <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#f8fafc' }}>
+                  Schedule & Publish Assessment
+                </h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+                  Set testing window, duration, passing criteria, and anti-cheat lockdown policies for your {extractedQuestions.length} synthesized questions.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <ArrowLeft size={16} />
+                  <span>Back to Questions</span>
+                </button>
+              </div>
             </div>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#f8fafc' }}>
-              Schedule & Publish Assessment
-            </h2>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-              Set testing window, duration, passing criteria, and anti-cheat lockdown policies for your {extractedQuestions.length} synthesized questions.
-            </p>
           </div>
 
           <form onSubmit={handleScheduleExam}>
@@ -833,15 +1121,27 @@ export const AdminAiPdfImport = () => {
               </div>
             </div>
 
-            {/* Action buttons */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="btn-secondary"
-              >
-                Back to Questions
-              </button>
+            {/* Action buttons with clear Back & Forward actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <ArrowLeft size={16} />
+                  <span>Back to Questions</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="btn-secondary"
+                  style={{ opacity: 0.8 }}
+                >
+                  <span>Back to Input</span>
+                </button>
+              </div>
 
               <button
                 type="submit"
@@ -919,34 +1219,54 @@ export const AdminAiPdfImport = () => {
                 <div style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div>📚 <strong>Topic:</strong> {singleScheduledExam.topic}</div>
                   <div>⏱️ <strong>Duration:</strong> {singleScheduledExam.durationMinutes} Minutes</div>
-                  <div>📝 <strong>Questions:</strong> {singleScheduledExam.questions?.length || extractedQuestions.length}</div>
-                  <div>📅 <strong>Available From:</strong> {new Date(singleScheduledExam.scheduledDate).toLocaleString()}</div>
+                  <div>🎯 <strong>Questions:</strong> {singleScheduledExam.questions?.length || extractedQuestions.length} Questions</div>
+                  <div>✅ <strong>Pass Mark:</strong> {singleScheduledExam.passPercentage}%</div>
+                </div>
+
+                {/* Exam Access URL & Copy Button */}
+                <div style={{
+                  marginTop: '1.25rem',
+                  display: 'flex',
+                  gap: '8px',
+                  alignItems: 'center',
+                }}>
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-input"
+                    value={`${window.location.origin}/exam/${singleScheduledExam.examCode}`}
+                    style={{ fontSize: '0.85rem', color: '#38bdf8' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleCopyExamLink(singleScheduledExam.examCode)}
+                    className="btn-secondary"
+                    style={{ padding: '8px 14px', flexShrink: 0 }}
+                  >
+                    {copiedCode === singleScheduledExam.examCode ? (
+                      <>
+                        <Check size={16} color="#34d399" />
+                        <span style={{ color: '#34d399' }}>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={16} />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
-              {/* Share Actions */}
+              {/* Action Links */}
               <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => handleCopyExamLink(singleScheduledExam.examCode)}
-                  className="btn-secondary"
-                  style={{
-                    padding: '12px 24px',
-                    fontSize: '0.95rem',
-                    background: copiedCode === singleScheduledExam.examCode ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                  }}
-                >
-                  {copiedCode === singleScheduledExam.examCode ? <Check size={18} /> : <Copy size={18} />}
-                  <span>{copiedCode === singleScheduledExam.examCode ? 'Link Copied!' : 'Copy Exam Link'}</span>
-                </button>
-
                 <Link
                   to={`/exam/${singleScheduledExam.examCode}`}
-                  target="_blank"
                   className="btn-primary"
                   style={{ padding: '12px 24px', fontSize: '0.95rem' }}
                 >
                   <Eye size={18} />
-                  <span>Preview Exam Lobby</span>
+                  <span>Take Exam as Student</span>
                 </Link>
 
                 <Link
@@ -956,6 +1276,26 @@ export const AdminAiPdfImport = () => {
                 >
                   <span>View All Scheduled Exams</span>
                 </Link>
+
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="btn-secondary"
+                  style={{ padding: '12px 20px', fontSize: '0.95rem' }}
+                >
+                  <ArrowLeft size={16} />
+                  <span>Review Questions</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="btn-secondary"
+                  style={{ padding: '12px 20px', fontSize: '0.95rem', opacity: 0.85 }}
+                >
+                  <RefreshCw size={16} />
+                  <span>Create Another Assessment</span>
+                </button>
               </div>
             </div>
           ) : (
@@ -969,6 +1309,13 @@ export const AdminAiPdfImport = () => {
                 <Link to="/admin/exams" className="btn-primary">
                   View Scheduled Exams
                 </Link>
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="btn-secondary"
+                >
+                  Create Another Exam
+                </button>
               </div>
             </div>
           )}

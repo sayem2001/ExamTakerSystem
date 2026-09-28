@@ -43,8 +43,50 @@ const getActiveApiKey = async (providedKey = '') => {
 };
 
 /**
- * Parse & generate structured MCQs from PDF text using Gemini
- * Supports batching for large PDFs (100 to 200 questions)
+ * Robust caller across candidate Gemini models with backoff retry
+ */
+const callGeminiCandidateModels = async ({ genAI, modelCandidates, prompt }) => {
+  let lastError = null;
+
+  for (const modelName of modelCandidates) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            temperature: 0.25,
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+          },
+        });
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().trim();
+
+        // Clean any accidental markdown fence
+        text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+        const parsed = JSON.parse(text);
+
+        return { parsed, modelUsed: modelName };
+      } catch (err) {
+        lastError = err;
+        console.warn(`Model ${modelName} (attempt ${attempt + 1}) encountered: ${err.status || err.message}`);
+        if (err.status === 503 || err.status === 429) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        } else {
+          break; // Move to next model candidate
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('All Gemini candidate models failed to respond.');
+};
+
+/**
+ * Parse & generate structured MCQs from PDF or pasted text using Gemini
+ * Batches requests (12-15 questions per call) to reliably return 30+ questions
  */
 const generateMCQsWithGemini = async ({
   pdfText,
@@ -54,10 +96,11 @@ const generateMCQsWithGemini = async ({
   apiKey = '',
 }) => {
   const activeKey = await getActiveApiKey(apiKey);
+  const targetCount = Math.max(1, parseInt(questionCount, 10) || 30);
 
   if (!activeKey) {
     console.warn('⚠️ No Gemini API Key configured. Generating intelligent fallback questions for demo.');
-    return generateFallbackQuestions(targetTopic, targetDifficulty, questionCount);
+    return generateFallbackQuestions(targetTopic, targetDifficulty, targetCount);
   }
 
   const genAI = new GoogleGenerativeAI(activeKey);
@@ -69,56 +112,78 @@ const generateMCQsWithGemini = async ({
     'gemini-3.8-flash',
     'gemini-3.5-flash',
     'gemini-pro-latest',
-    'gemini-2.5-pro',
   ];
 
-  // Slice text into manageable chunks if too large (e.g. max ~50,000 chars per prompt)
-  const trimmedText = pdfText.slice(0, 50000);
+  // Slice text into manageable chunks if too large (max ~50,000 chars per prompt)
+  const trimmedText = (pdfText || '').slice(0, 50000);
 
-  const prompt = `
+  // Calculate batches to reliably generate full question count without LLM truncation
+  const batches = [];
+  if (targetCount <= 12) {
+    batches.push(targetCount);
+  } else {
+    let remaining = targetCount;
+    while (remaining > 0) {
+      const currentBatch = Math.min(15, remaining);
+      batches.push(currentBatch);
+      remaining -= currentBatch;
+    }
+  }
+
+  console.log(`Generating ${targetCount} questions across ${batches.length} batch(es): [${batches.join(', ')}]`);
+
+  let allQuestions = [];
+  let detectedTopic = targetTopic;
+  let modelUsed = 'gemini-flash-lite-latest';
+  let lastError = null;
+
+  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
+    const batchSize = batches[bIndex];
+    const offset = allQuestions.length;
+
+    const prompt = `
 You are an expert mathematical exam creator and problem synthesizer.
-Analyze the following document content extracted from an examination preparation resource.
-Your task is to produce brand-new Multiple-Choice Questions (MCQs) according to the selected difficulty tier.
+Analyze the following document/source content extracted from an examination preparation resource.
+Your task is to synthesize brand-new Multiple-Choice Questions (MCQs) according to the selected difficulty tier.
 
 DOCUMENT CONTENT:
 ---
 ${trimmedText}
 ---
 
-CRITICAL TRANSFORMATION RULES - NEVER DIRECTLY COPY-PASTE THE SOURCE QUESTIONS:
-You must formulate NEW, unique questions derived from the problem archetypes found in the document:
+CRITICAL DIFFICULTY & MODIFICATION RULES (NEVER DIRECTLY COPY-PASTE):
+Difficulty Level Selected: "${targetDifficulty.toUpperCase()}"
 
-1. Topic: Detect the true subject/chapter of the document (e.g. "Profit and Loss", "Business Math", "Calculus", etc.). Use "${targetTopic}" if provided, unless the document is specifically about a different mathematical topic.
+1. If "EASY":
+   * Pick straightforward, fundamental questions from the document.
+   * KEEP THE EXACT SAME QUESTION STRUCTURE AND 1-STEP MATHEMATICAL LOGIC.
+   * CRITICAL: YOU MUST CHANGE ALL NUMBERS, VALUES, AND CONTEXT ENTITIES (e.g., if original says cost price 80 and 25% profit on SP, change to cost price 120 and 20% profit on SP; change names/goods like pens to books).
+   * Do NOT increase question complexity. Recalculate options A-D (or A-E), set the new correctOption, and write a fresh step-by-step mathematical explanation showing the calculation with the new numbers.
 
-2. Difficulty Mode: "${targetDifficulty.toUpperCase()}"
-   - If "EASY":
-     * Pick straightforward, direct formula problems from the document.
-     * DO NOT change the basic problem concept or logic.
-     * CRITICAL: YOU MUST CHANGE ALL NUMBERS, VALUES, AND PRODUCT/PERSON NAMES (e.g. change 64 to 120, 20% to 25%, shirts to books).
-     * Recalculate options A-D (or A-E), set the new correctOption, and write a fresh step-by-step mathematical explanation with the new numbers.
-   - If "MEDIUM":
-     * Pick medium problem archetypes from the document.
-     * CRITICAL: Modify the problem to be moderately harder than the source question.
-     * Add an extra step or condition (e.g., combine a discount with a sales tax/VAT, successive discounts, or ask for the original cost price given a two-stage transaction).
-     * Formulate 4 to 5 options with realistic distractors, determine the correctOption, and provide a clear step-by-step derivation.
-   - If "HARD":
-     * Transform the underlying concepts into advanced, challenging multi-tier real-world word problems.
-     * Incorporate multiple interacting entities or constraints (e.g. faulty weights/measurements combined with markups, spoilage/breakage of a fraction of goods, unequal quantity batches with different profit rates, or algebraic system with unknowns).
-     * Formulate 4 to 5 options with plausible trap answers, determine the correctOption, and write a detailed, rigorous step-by-step mathematical proof/derivation.
+2. If "MEDIUM":
+   * Pick medium difficulty problem archetypes from the document.
+   * CRITICAL: Modify the problem to be moderately harder than the source question.
+   * Add an extra step or condition (e.g., combine a discount with a sales tax/VAT, successive discounts, or ask for the original cost price given a two-stage transaction).
+   * Formulate 4 to 5 options with realistic distractors, determine the correctOption, and provide a clear step-by-step derivation.
 
-3. Question Diversity:
-   - Identify different problem types from across the document.
-   - Extract and synthesize up to ${questionCount} distinct, high-quality, non-duplicate questions.
+3. If "HARD":
+   * Transform the document's concepts into ADVANCED MULTI-TIER REAL-WORLD WORD PROBLEMS.
+   * Incorporate multiple interacting entities or constraints (e.g. faulty weights/measurements combined with markups, spoilage/breakage of a fraction of goods, unequal quantity batches with different profit rates, or algebraic system with unknowns).
+   * Formulate 4 to 5 options with plausible trap answers, determine the correctOption, and write a detailed, rigorous step-by-step mathematical proof/derivation.
 
-4. Formatting:
-   - Use clean LaTeX for all formulas and mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 15%).
+4. Question Diversity & Batch Requirement:
+   * This is Batch ${bIndex + 1} of ${batches.length}.
+   * You MUST generate EXACTLY ${batchSize} questions in the "questions" array, numbered from ${offset + 1} to ${offset + batchSize}.
+   * DO NOT STOP EARLY. Return all ${batchSize} fully solved questions.
+   * Ensure questions in this batch explore varied problem archetypes across the document.
+   * Use clean LaTeX for all formulas and mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 15%).
 
 OUTPUT FORMAT:
 Respond with ONLY a valid raw JSON object (no markdown, no backticks):
 {
-  "detectedTopic": "Profit and Loss",
+  "detectedTopic": "${targetTopic || 'General Mathematics'}",
   "difficulty": "${targetDifficulty.toLowerCase()}",
-  "transformationRule": "Summary of modification applied",
+  "transformationRule": "Rule applied for ${targetDifficulty.toUpperCase()}",
   "questions": [
     {
       "questionText": "...",
@@ -137,63 +202,107 @@ Respond with ONLY a valid raw JSON object (no markdown, no backticks):
 }
 `;
 
-  let lastError = null;
-  for (const modelName of modelCandidates) {
     try {
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: {
-          temperature: 0.25,
-          responseMimeType: 'application/json',
-        },
+      const { parsed, modelUsed: usedModel } = await callGeminiCandidateModels({
+        genAI,
+        modelCandidates,
+        prompt,
       });
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      let text = response.text().trim();
+      modelUsed = usedModel;
 
-      // Clean any accidental markdown fence
-      text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-      const parsed = JSON.parse(text);
-
-      let extractedQuestions = [];
-      let detectedTopic = targetTopic;
-
+      let batchQuestions = [];
       if (Array.isArray(parsed)) {
         if (parsed[0]?.questions && Array.isArray(parsed[0].questions)) {
-          extractedQuestions = parsed[0].questions;
+          batchQuestions = parsed[0].questions;
           detectedTopic = parsed[0].detectedTopic || detectedTopic;
         } else {
-          extractedQuestions = parsed;
+          batchQuestions = parsed;
         }
       } else if (parsed && typeof parsed === 'object') {
-        extractedQuestions = parsed.questions || parsed.mcqs || [];
+        batchQuestions = parsed.questions || parsed.mcqs || [];
         detectedTopic = parsed.detectedTopic || detectedTopic;
       }
 
-      if (Array.isArray(extractedQuestions) && extractedQuestions.length > 0) {
-        return {
-          success: true,
-          modelUsed: modelName,
-          detectedTopic: detectedTopic || targetTopic,
-          totalExtracted: extractedQuestions.length,
-          questions: extractedQuestions,
-        };
+      if (Array.isArray(batchQuestions) && batchQuestions.length > 0) {
+        allQuestions.push(...batchQuestions);
+        console.log(`Batch ${bIndex + 1} produced ${batchQuestions.length} questions. Total so far: ${allQuestions.length}`);
+      }
+
+      // Short delay between batches to stay well within free tier RPS
+      if (bIndex < batches.length - 1) {
+        await new Promise((r) => setTimeout(r, 400));
       }
     } catch (err) {
-      console.warn(`Attempt with ${modelName} failed (${err.status || err.message}). Trying next candidate...`);
+      console.error(`Batch ${bIndex + 1} failed:`, err.message);
       lastError = err;
-      if (err.status === 503 || err.status === 429) {
-        await new Promise((r) => setTimeout(r, 600));
-      }
     }
   }
 
-  console.error('All Gemini model attempts failed:', lastError?.message);
+  // Top-up batch if we fell short of the user's requested count by 2 or more questions
+  if (allQuestions.length < targetCount && allQuestions.length > 0 && (targetCount - allQuestions.length) >= 2) {
+    const deficit = targetCount - allQuestions.length;
+    console.log(`Target was ${targetCount} but got ${allQuestions.length}. Running top-up batch for ${deficit} questions...`);
+    try {
+      const topUpPrompt = `
+Generate EXACTLY ${deficit} MORE distinct ${targetDifficulty.toUpperCase()} math MCQs derived from the document archetypes.
+Document content excerpt:
+${trimmedText.slice(0, 20000)}
+
+Follow the ${targetDifficulty.toUpperCase()} rules strictly. Number from ${allQuestions.length + 1} to ${targetCount}.
+Return JSON:
+{
+  "questions": [
+    {
+      "questionText": "...",
+      "difficulty": "${targetDifficulty.toLowerCase()}",
+      "topic": "${detectedTopic}",
+      "options": [
+        {"key": "A", "text": "..."},
+        {"key": "B", "text": "..."},
+        {"key": "C", "text": "..."},
+        {"key": "D", "text": "..."}
+      ],
+      "correctOption": "A",
+      "explanation": "..."
+    }
+  ]
+}
+`;
+      const { parsed } = await callGeminiCandidateModels({
+        genAI,
+        modelCandidates,
+        prompt: topUpPrompt,
+      });
+      const topUpQs = parsed?.questions || parsed?.mcqs || (Array.isArray(parsed) ? parsed : []);
+      if (Array.isArray(topUpQs)) {
+        allQuestions.push(...topUpQs);
+      }
+    } catch (topUpErr) {
+      console.warn('Top-up batch failed:', topUpErr.message);
+    }
+  }
+
+  // Clean & validate questions
+  const validQuestions = allQuestions.filter(
+    (q) => q && q.questionText && Array.isArray(q.options) && q.options.length >= 2
+  );
+
+  if (validQuestions.length > 0) {
+    return {
+      success: true,
+      modelUsed,
+      detectedTopic: detectedTopic || targetTopic,
+      totalExtracted: Math.min(validQuestions.length, targetCount),
+      questions: validQuestions.slice(0, targetCount),
+    };
+  }
+
+  console.error('All Gemini extraction attempts failed or produced 0 questions:', lastError?.message);
   return {
     success: false,
-    error: lastError ? (lastError.message || `Error code ${lastError.status}`) : 'Gemini extraction failed',
-    fallback: generateFallbackQuestions(targetTopic, targetDifficulty, questionCount),
+    error: lastError ? (lastError.message || `Error status ${lastError.status}`) : 'Gemini extraction failed',
+    fallback: generateFallbackQuestions(targetTopic, targetDifficulty, targetCount),
   };
 };
 
