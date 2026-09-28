@@ -43,24 +43,25 @@ const getActiveApiKey = async (providedKey = '') => {
 };
 
 /**
- * Robust caller across candidate Gemini models with backoff retry
+ * Robust caller across candidate Gemini models with priority on gemini-3.8-flash
  */
-const callGeminiCandidateModels = async ({ genAI, modelCandidates, prompt }) => {
+const callGeminiCandidateModels = async ({ genAI, modelCandidates, contents }) => {
   let lastError = null;
 
   for (const modelName of modelCandidates) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
+        console.log(`Calling ${modelName} (attempt ${attempt + 1})...`);
         const model = genAI.getGenerativeModel({
           model: modelName,
           generationConfig: {
-            temperature: 0.25,
+            temperature: 0.3,
             maxOutputTokens: 8192,
             responseMimeType: 'application/json',
           },
         });
 
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(contents);
         const response = await result.response;
         let text = response.text().trim();
 
@@ -71,9 +72,13 @@ const callGeminiCandidateModels = async ({ genAI, modelCandidates, prompt }) => 
         return { parsed, modelUsed: modelName };
       } catch (err) {
         lastError = err;
-        console.warn(`Model ${modelName} (attempt ${attempt + 1}) encountered: ${err.status || err.message}`);
+        console.warn(`Model ${modelName} attempt ${attempt + 1} failed: ${err.status || err.message}`);
+        if (err.status === 429 && err.message && err.message.includes('Quota exceeded')) {
+          // If daily quota exceeded on this model, immediately try next candidate without retry
+          break;
+        }
         if (err.status === 503 || err.status === 429) {
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         } else {
           break; // Move to next model candidate
         }
@@ -85,13 +90,14 @@ const callGeminiCandidateModels = async ({ genAI, modelCandidates, prompt }) => 
 };
 
 /**
- * Parse & generate structured MCQs from PDF or pasted text using Gemini
- * Batches requests (12-15 questions per call) to reliably return 30+ questions
+ * Optimized question generator modeled after the Gemini App
+ * Uses gemini-3.8-flash as primary model and accepts native PDF inlineData or direct text
  */
 const generateMCQsWithGemini = async ({
-  pdfText,
+  pdfPath = null,
+  pdfText = '',
   targetTopic = 'General Mathematics',
-  targetDifficulty = 'auto', // 'easy' | 'medium' | 'hard' | 'auto'
+  targetDifficulty = 'easy', // 'easy' | 'medium' | 'hard'
   questionCount = 30,
   apiKey = '',
 }) => {
@@ -99,209 +105,139 @@ const generateMCQsWithGemini = async ({
   const targetCount = Math.max(1, parseInt(questionCount, 10) || 30);
 
   if (!activeKey) {
-    console.warn('⚠️ No Gemini API Key configured. Generating intelligent fallback questions for demo.');
+    console.warn('⚠️ No Gemini API Key configured. Generating intelligent fallback questions.');
     return generateFallbackQuestions(targetTopic, targetDifficulty, targetCount);
   }
 
   const genAI = new GoogleGenerativeAI(activeKey);
 
-  // Preferred models in priority order for Google AI Studio
+  // Model candidates with gemini-3.8-flash as PRIMARY
   const modelCandidates = [
-    'gemini-flash-lite-latest',
-    'gemini-flash-latest',
     'gemini-3.8-flash',
+    'gemini-flash-lite-latest',
+    'gemini-3.6-flash',
     'gemini-3.5-flash',
-    'gemini-pro-latest',
   ];
 
-  // Slice text into manageable chunks if too large (max ~50,000 chars per prompt)
-  const trimmedText = (pdfText || '').slice(0, 50000);
+  // Concise, effective modification rules
+  const diffRules = {
+    easy: '- Keep the exact same 1-step logic as the problem archetypes in the document.\n- Change all numbers, values, and names (e.g. change 80 to 120, 25% to 20%).\n- Recalculate options A-D, identify correctOption, and write a clear step-by-step mathematical explanation.',
+    medium: '- Moderately increase difficulty by adding a secondary calculation step or reversing unknown variables (e.g. solve for original cost given final selling price).\n- Formulate 4 realistic options, identify correctOption, and write a clear derivation.',
+    hard: '- Transform problem concepts into multi-tier challenging word problems with realistic real-world constraints (e.g. faulty weights, fractional spoilage, tiered bulk rates).\n- Formulate plausible trap answers, identify correctOption, and provide a comprehensive mathematical proof.',
+  };
 
-  // Calculate batches to reliably generate full question count without LLM truncation
-  const batches = [];
-  if (targetCount <= 12) {
-    batches.push(targetCount);
-  } else {
-    let remaining = targetCount;
-    while (remaining > 0) {
-      const currentBatch = Math.min(15, remaining);
-      batches.push(currentBatch);
-      remaining -= currentBatch;
-    }
-  }
+  const selectedRule = diffRules[targetDifficulty.toLowerCase()] || diffRules.easy;
 
-  console.log(`Generating ${targetCount} questions across ${batches.length} batch(es): [${batches.join(', ')}]`);
+  const prompt = `
+You are an expert exam question creator.
+Analyze the provided document/math content and create EXACTLY ${targetCount} brand-new multiple-choice questions (MCQs) for "${targetTopic}" at ${targetDifficulty.toUpperCase()} difficulty.
 
-  let allQuestions = [];
-  let detectedTopic = targetTopic;
-  let modelUsed = 'gemini-flash-lite-latest';
-  let lastError = null;
+MODIFICATION RULE (${targetDifficulty.toUpperCase()}):
+${selectedRule}
 
-  for (let bIndex = 0; bIndex < batches.length; bIndex++) {
-    const batchSize = batches[bIndex];
-    const offset = allQuestions.length;
+IMPORTANT GUIDELINES:
+- DO NOT copy-paste original questions verbatim; formulate newly modified, unique questions.
+- Recalculate all 4 options (A, B, C, D) and specify the correctOption.
+- Provide a clear, step-by-step mathematical explanation for each.
+- Use clean LaTeX for all formulas (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 25%).
 
-    const prompt = `
-You are an expert mathematical exam creator and problem synthesizer.
-Analyze the following document/source content extracted from an examination preparation resource.
-Your task is to synthesize brand-new Multiple-Choice Questions (MCQs) according to the selected difficulty tier.
-
-DOCUMENT CONTENT:
----
-${trimmedText}
----
-
-CRITICAL DIFFICULTY & MODIFICATION RULES (NEVER DIRECTLY COPY-PASTE):
-Difficulty Level Selected: "${targetDifficulty.toUpperCase()}"
-
-1. If "EASY":
-   * Pick straightforward, fundamental questions from the document.
-   * KEEP THE EXACT SAME QUESTION STRUCTURE AND 1-STEP MATHEMATICAL LOGIC.
-   * CRITICAL: YOU MUST CHANGE ALL NUMBERS, VALUES, AND CONTEXT ENTITIES (e.g., if original says cost price 80 and 25% profit on SP, change to cost price 120 and 20% profit on SP; change names/goods like pens to books).
-   * Do NOT increase question complexity. Recalculate options A-D (or A-E), set the new correctOption, and write a fresh step-by-step mathematical explanation showing the calculation with the new numbers.
-
-2. If "MEDIUM":
-   * Pick medium difficulty problem archetypes from the document.
-   * CRITICAL: Modify the problem to be moderately harder than the source question.
-   * Add an extra step or condition (e.g., combine a discount with a sales tax/VAT, successive discounts, or ask for the original cost price given a two-stage transaction).
-   * Formulate 4 to 5 options with realistic distractors, determine the correctOption, and provide a clear step-by-step derivation.
-
-3. If "HARD":
-   * Transform the document's concepts into ADVANCED MULTI-TIER REAL-WORLD WORD PROBLEMS.
-   * Incorporate multiple interacting entities or constraints (e.g. faulty weights/measurements combined with markups, spoilage/breakage of a fraction of goods, unequal quantity batches with different profit rates, or algebraic system with unknowns).
-   * Formulate 4 to 5 options with plausible trap answers, determine the correctOption, and write a detailed, rigorous step-by-step mathematical proof/derivation.
-
-4. Question Diversity & Batch Requirement:
-   * This is Batch ${bIndex + 1} of ${batches.length}.
-   * You MUST generate EXACTLY ${batchSize} questions in the "questions" array, numbered from ${offset + 1} to ${offset + batchSize}.
-   * DO NOT STOP EARLY. Return all ${batchSize} fully solved questions.
-   * Ensure questions in this batch explore varied problem archetypes across the document.
-   * Use clean LaTeX for all formulas and mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 15%).
-
-OUTPUT FORMAT:
-Respond with ONLY a valid raw JSON object (no markdown, no backticks):
+Return ONLY a valid raw JSON object (no markdown, no backticks):
 {
-  "detectedTopic": "${targetTopic || 'General Mathematics'}",
+  "detectedTopic": "${targetTopic}",
   "difficulty": "${targetDifficulty.toLowerCase()}",
-  "transformationRule": "Rule applied for ${targetDifficulty.toUpperCase()}",
   "questions": [
     {
-      "questionText": "...",
+      "questionText": "Question text...",
       "difficulty": "${targetDifficulty.toLowerCase()}",
       "topic": "${targetTopic}",
       "options": [
-        {"key": "A", "text": "..."},
-        {"key": "B", "text": "..."},
-        {"key": "C", "text": "..."},
-        {"key": "D", "text": "..."}
+        {"key": "A", "text": "Option A"},
+        {"key": "B", "text": "Option B"},
+        {"key": "C", "text": "Option C"},
+        {"key": "D", "text": "Option D"}
       ],
       "correctOption": "A",
-      "explanation": "..."
+      "explanation": "Step-by-step derivation..."
     }
   ]
 }
+You MUST output all ${targetCount} questions in the "questions" array.
 `;
 
+  // Prepare contents payload: Native PDF base64 if available, otherwise direct text
+  let contents = [];
+  if (pdfPath && fs.existsSync(pdfPath)) {
     try {
-      const { parsed, modelUsed: usedModel } = await callGeminiCandidateModels({
-        genAI,
-        modelCandidates,
-        prompt,
-      });
-
-      modelUsed = usedModel;
-
-      let batchQuestions = [];
-      if (Array.isArray(parsed)) {
-        if (parsed[0]?.questions && Array.isArray(parsed[0].questions)) {
-          batchQuestions = parsed[0].questions;
-          detectedTopic = parsed[0].detectedTopic || detectedTopic;
-        } else {
-          batchQuestions = parsed;
-        }
-      } else if (parsed && typeof parsed === 'object') {
-        batchQuestions = parsed.questions || parsed.mcqs || [];
-        detectedTopic = parsed.detectedTopic || detectedTopic;
+      const stats = fs.statSync(pdfPath);
+      // If PDF file is under 15MB, send as native inlineData
+      if (stats.size < 15 * 1024 * 1024) {
+        const base64Data = fs.readFileSync(pdfPath).toString('base64');
+        contents = [
+          { inlineData: { data: base64Data, mimeType: 'application/pdf' } },
+          prompt,
+        ];
+        console.log(`Sending native PDF (${Math.round(stats.size / 1024)} KB) directly to Gemini API`);
       }
-
-      if (Array.isArray(batchQuestions) && batchQuestions.length > 0) {
-        allQuestions.push(...batchQuestions);
-        console.log(`Batch ${bIndex + 1} produced ${batchQuestions.length} questions. Total so far: ${allQuestions.length}`);
-      }
-
-      // Short delay between batches to stay well within free tier RPS
-      if (bIndex < batches.length - 1) {
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    } catch (err) {
-      console.error(`Batch ${bIndex + 1} failed:`, err.message);
-      lastError = err;
+    } catch (readErr) {
+      console.warn('Could not read PDF for inlineData, falling back to text:', readErr.message);
     }
   }
 
-  // Top-up batch if we fell short of the user's requested count by 2 or more questions
-  if (allQuestions.length < targetCount && allQuestions.length > 0 && (targetCount - allQuestions.length) >= 2) {
-    const deficit = targetCount - allQuestions.length;
-    console.log(`Target was ${targetCount} but got ${allQuestions.length}. Running top-up batch for ${deficit} questions...`);
-    try {
-      const topUpPrompt = `
-Generate EXACTLY ${deficit} MORE distinct ${targetDifficulty.toUpperCase()} math MCQs derived from the document archetypes.
-Document content excerpt:
-${trimmedText.slice(0, 20000)}
+  // Fallback to text payload if PDF was not attached or too large
+  if (contents.length === 0) {
+    const trimmedText = (pdfText || '').slice(0, 45000);
+    contents = [
+      `DOCUMENT SOURCE CONTENT:\n---\n${trimmedText}\n---\n\n${prompt}`,
+    ];
+    console.log(`Sending extracted text (${trimmedText.length} chars) to Gemini API`);
+  }
 
-Follow the ${targetDifficulty.toUpperCase()} rules strictly. Number from ${allQuestions.length + 1} to ${targetCount}.
-Return JSON:
-{
-  "questions": [
-    {
-      "questionText": "...",
-      "difficulty": "${targetDifficulty.toLowerCase()}",
-      "topic": "${detectedTopic}",
-      "options": [
-        {"key": "A", "text": "..."},
-        {"key": "B", "text": "..."},
-        {"key": "C", "text": "..."},
-        {"key": "D", "text": "..."}
-      ],
-      "correctOption": "A",
-      "explanation": "..."
-    }
-  ]
-}
-`;
-      const { parsed } = await callGeminiCandidateModels({
-        genAI,
-        modelCandidates,
-        prompt: topUpPrompt,
-      });
-      const topUpQs = parsed?.questions || parsed?.mcqs || (Array.isArray(parsed) ? parsed : []);
-      if (Array.isArray(topUpQs)) {
-        allQuestions.push(...topUpQs);
+  try {
+    const { parsed, modelUsed } = await callGeminiCandidateModels({
+      genAI,
+      modelCandidates,
+      contents,
+    });
+
+    let extractedQuestions = [];
+    let detectedTopic = targetTopic;
+
+    if (Array.isArray(parsed)) {
+      if (parsed[0]?.questions && Array.isArray(parsed[0].questions)) {
+        extractedQuestions = parsed[0].questions;
+        detectedTopic = parsed[0].detectedTopic || detectedTopic;
+      } else {
+        extractedQuestions = parsed;
       }
-    } catch (topUpErr) {
-      console.warn('Top-up batch failed:', topUpErr.message);
+    } else if (parsed && typeof parsed === 'object') {
+      extractedQuestions = parsed.questions || parsed.mcqs || [];
+      detectedTopic = parsed.detectedTopic || detectedTopic;
     }
+
+    // Filter valid questions
+    const validQuestions = (extractedQuestions || []).filter(
+      (q) => q && q.questionText && Array.isArray(q.options) && q.options.length >= 2
+    );
+
+    console.log(`Gemini (${modelUsed}) returned ${validQuestions.length} valid questions in 1 call`);
+
+    if (validQuestions.length > 0) {
+      return {
+        success: true,
+        modelUsed,
+        detectedTopic: detectedTopic || targetTopic,
+        totalExtracted: validQuestions.length,
+        questions: validQuestions.slice(0, targetCount),
+      };
+    }
+  } catch (err) {
+    console.error('Gemini question generation failed:', err.message);
   }
 
-  // Clean & validate questions
-  const validQuestions = allQuestions.filter(
-    (q) => q && q.questionText && Array.isArray(q.options) && q.options.length >= 2
-  );
-
-  if (validQuestions.length > 0) {
-    return {
-      success: true,
-      modelUsed,
-      detectedTopic: detectedTopic || targetTopic,
-      totalExtracted: Math.min(validQuestions.length, targetCount),
-      questions: validQuestions.slice(0, targetCount),
-    };
-  }
-
-  console.error('All Gemini extraction attempts failed or produced 0 questions:', lastError?.message);
+  // Fallback if all attempts failed
+  console.warn('Falling back to standard verified math question bank');
   return {
     success: false,
-    error: lastError ? (lastError.message || `Error status ${lastError.status}`) : 'Gemini extraction failed',
     fallback: generateFallbackQuestions(targetTopic, targetDifficulty, targetCount),
   };
 };

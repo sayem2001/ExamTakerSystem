@@ -165,7 +165,7 @@ export const AdminAiPdfImport = () => {
       formData.append('difficulty', difficulty);
 
       setProgressMsg(
-        `Synthesizing ${questionCount} ${difficulty.toUpperCase()} questions in batches with step-by-step derivations...`
+        `Gemini 3.8 Flash is analyzing the document and synthesizing ${questionCount} ${difficulty.toUpperCase()} questions...`
       );
       const res = await api.uploadAndProcessPdf(formData);
 
@@ -311,7 +311,7 @@ export const AdminAiPdfImport = () => {
       <div style={{ marginBottom: '2.5rem' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#c084fc', fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px' }}>
           <Sparkles size={18} />
-          <span>Gemini AI Intelligent Exam Creator</span>
+          <span>Gemini 3.8 Flash Intelligent Exam Creator</span>
         </div>
         <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem' }}>
           AI Exam Generator & Scheduler
@@ -743,7 +743,7 @@ export const AdminAiPdfImport = () => {
               }} />
               <div>
                 <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.95rem' }}>
-                  Processing with Gemini AI Engine...
+                  Processing with Gemini 3.8 Flash Engine...
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginTop: '2px' }}>
                   {progressMsg}

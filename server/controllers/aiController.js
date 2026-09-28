@@ -57,6 +57,7 @@ exports.processPdf = async (req, res) => {
     // Call Gemini service
     const targetCount = parseInt(questionCount, 10) || 30;
     const aiResult = await generateMCQsWithGemini({
+      pdfPath: req.file ? req.file.path : null,
       pdfText: text,
       targetTopic: topic,
       targetDifficulty: difficulty,
