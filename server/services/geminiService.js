@@ -76,38 +76,54 @@ const generateMCQsWithGemini = async ({
   const trimmedText = pdfText.slice(0, 50000);
 
   const prompt = `
-You are an expert mathematical exam question extractor and creator.
-Analyze the following document content and extract or generate multiple-choice questions (MCQs).
+You are an expert mathematical exam creator and problem synthesizer.
+Analyze the following document content extracted from an examination preparation resource.
+Your task is to produce brand-new Multiple-Choice Questions (MCQs) according to the selected difficulty tier.
 
 DOCUMENT CONTENT:
 ---
 ${trimmedText}
 ---
 
-REQUIREMENTS:
-1. Topic: Detect the main mathematical or quantitative topic of the document (e.g. "Profit and Loss", "Business Mathematics", "Algebra", "Calculus", etc.). If target topic "${targetTopic}" is provided, prioritize it unless the document is specifically about a different quantitative topic.
-2. Question Extraction:
-   - Extract the actual multiple choice questions, past paper questions, and practice problems from the document text.
-   - Retain mathematical notation and formulas using LaTeX (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, percentages, etc.) or clean clear text.
-   - Extract the answer choices (A, B, C, D, and E if present). Ensure each question has between 4 and 5 options with keys "A", "B", "C", "D" (and "E" if present).
-   - If the document contains answer keys or solutions (such as "Answers of past paper questions", "Solutions to Past Paper Questions"), use the provided correct answer and explanation.
-   - If answers are not explicitly marked in the text, solve the question accurately to determine the correctOption and provide a step-by-step mathematical explanation.
-3. Target Difficulty: "${targetDifficulty}" (Classify each question as "easy", "medium", or "hard"):
-   - "easy": direct formula application, 1-step arithmetic or basic concepts.
-   - "medium": 2-3 step calculations, standard quantitative problem solving.
-   - "hard": multi-step derivations, tricky word problems, optimization.
-4. Extract up to ${questionCount} distinct, high-quality questions.
+CRITICAL TRANSFORMATION RULES - NEVER DIRECTLY COPY-PASTE THE SOURCE QUESTIONS:
+You must formulate NEW, unique questions derived from the problem archetypes found in the document:
+
+1. Topic: Detect the true subject/chapter of the document (e.g. "Profit and Loss", "Business Math", "Calculus", etc.). Use "${targetTopic}" if provided, unless the document is specifically about a different mathematical topic.
+
+2. Difficulty Mode: "${targetDifficulty.toUpperCase()}"
+   - If "EASY":
+     * Pick straightforward, direct formula problems from the document.
+     * DO NOT change the basic problem concept or logic.
+     * CRITICAL: YOU MUST CHANGE ALL NUMBERS, VALUES, AND PRODUCT/PERSON NAMES (e.g. change 64 to 120, 20% to 25%, shirts to books).
+     * Recalculate options A-D (or A-E), set the new correctOption, and write a fresh step-by-step mathematical explanation with the new numbers.
+   - If "MEDIUM":
+     * Pick medium problem archetypes from the document.
+     * CRITICAL: Modify the problem to be moderately harder than the source question.
+     * Add an extra step or condition (e.g., combine a discount with a sales tax/VAT, successive discounts, or ask for the original cost price given a two-stage transaction).
+     * Formulate 4 to 5 options with realistic distractors, determine the correctOption, and provide a clear step-by-step derivation.
+   - If "HARD":
+     * Transform the underlying concepts into advanced, challenging multi-tier real-world word problems.
+     * Incorporate multiple interacting entities or constraints (e.g. faulty weights/measurements combined with markups, spoilage/breakage of a fraction of goods, unequal quantity batches with different profit rates, or algebraic system with unknowns).
+     * Formulate 4 to 5 options with plausible trap answers, determine the correctOption, and write a detailed, rigorous step-by-step mathematical proof/derivation.
+
+3. Question Diversity:
+   - Identify different problem types from across the document.
+   - Extract and synthesize up to ${questionCount} distinct, high-quality, non-duplicate questions.
+
+4. Formatting:
+   - Use clean LaTeX for all formulas and mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 15%).
 
 OUTPUT FORMAT:
-Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, just the pure JSON string):
+Respond with ONLY a valid raw JSON object (no markdown, no backticks):
 {
   "detectedTopic": "Profit and Loss",
-  "totalExtracted": 0,
+  "difficulty": "${targetDifficulty.toLowerCase()}",
+  "transformationRule": "Summary of modification applied",
   "questions": [
     {
       "questionText": "...",
-      "difficulty": "medium",
-      "topic": "Profit and Loss",
+      "difficulty": "${targetDifficulty.toLowerCase()}",
+      "topic": "${targetTopic}",
       "options": [
         {"key": "A", "text": "..."},
         {"key": "B", "text": "..."},
@@ -127,7 +143,7 @@ Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, 
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-          temperature: 0.2,
+          temperature: 0.25,
           responseMimeType: 'application/json',
         },
       });
@@ -137,22 +153,36 @@ Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, 
       let text = response.text().trim();
 
       // Clean any accidental markdown fence
-      text = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+      text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed = JSON.parse(text);
 
-      if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+      let extractedQuestions = [];
+      let detectedTopic = targetTopic;
+
+      if (Array.isArray(parsed)) {
+        if (parsed[0]?.questions && Array.isArray(parsed[0].questions)) {
+          extractedQuestions = parsed[0].questions;
+          detectedTopic = parsed[0].detectedTopic || detectedTopic;
+        } else {
+          extractedQuestions = parsed;
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        extractedQuestions = parsed.questions || parsed.mcqs || [];
+        detectedTopic = parsed.detectedTopic || detectedTopic;
+      }
+
+      if (Array.isArray(extractedQuestions) && extractedQuestions.length > 0) {
         return {
           success: true,
           modelUsed: modelName,
-          detectedTopic: parsed.detectedTopic || targetTopic,
-          totalExtracted: parsed.questions.length,
-          questions: parsed.questions,
+          detectedTopic: detectedTopic || targetTopic,
+          totalExtracted: extractedQuestions.length,
+          questions: extractedQuestions,
         };
       }
     } catch (err) {
       console.warn(`Attempt with ${modelName} failed (${err.status || err.message}). Trying next candidate...`);
       lastError = err;
-      // Brief pause if rate-limited or server error
       if (err.status === 503 || err.status === 429) {
         await new Promise((r) => setTimeout(r, 600));
       }
@@ -160,7 +190,6 @@ Respond with ONLY valid, raw JSON (no markdown formatting, no \`\`\`json block, 
   }
 
   console.error('All Gemini model attempts failed:', lastError?.message);
-  // Fallback if API fails or quota exceeded
   return {
     success: false,
     error: lastError ? (lastError.message || `Error code ${lastError.status}`) : 'Gemini extraction failed',

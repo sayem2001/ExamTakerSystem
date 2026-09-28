@@ -184,6 +184,17 @@ export const api = {
     return data;
   },
 
+  async scheduleGeneratedExam(payload) {
+    const res = await fetch(`${BASE_URL}/api/ai/schedule-generated-exam`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to schedule exam');
+    return data;
+  },
+
   // Admin
   async getAdminStats() {
     const res = await fetch(`${BASE_URL}/api/admin/stats`, {

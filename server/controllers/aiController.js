@@ -192,3 +192,102 @@ exports.autoCreateThreeExams = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Schedule a custom exam with the AI-synthesized questions
+// @route   POST /api/ai/schedule-generated-exam
+// @access  Private (Admin only)
+exports.scheduleGeneratedExam = async (req, res) => {
+  try {
+    const {
+      title,
+      topic,
+      difficulty = 'medium',
+      description,
+      scheduledDate,
+      scheduledEndDate,
+      durationMinutes = 60,
+      passPercentage = 50,
+      negativeMarking = true,
+      negativeMarkingRate = 0.25,
+      antiCheatSettings = {
+        fullScreenRequired: true,
+        maxTabSwitches: 3,
+        blockCopyPaste: true,
+        disableRightClick: true,
+      },
+      questions,
+      pdfDocument,
+    } = req.body;
+
+    if (!title || !topic || !questions || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide exam title, topic, and at least one question.',
+      });
+    }
+
+    // Ensure topic exists in Topic collection
+    let existingTopic = await Topic.findOne({ name: new RegExp(`^${topic}$`, 'i') });
+    if (!existingTopic) {
+      existingTopic = await Topic.create({
+        name: topic,
+        slug: topic.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        description: `Mathematical assessments in ${topic}`,
+      });
+    }
+
+    // Save questions in Question collection
+    const createdQuestionDocs = await Question.insertMany(
+      questions.map((q) => ({
+        topic,
+        difficulty: (q.difficulty || difficulty).toLowerCase(),
+        questionText: q.questionText,
+        options: q.options,
+        correctOption: (q.correctOption || 'A').toUpperCase().trim(),
+        explanation: q.explanation || '',
+        points: difficulty === 'hard' ? 2 : 1,
+        negativePoints: difficulty === 'hard' ? 0.5 : (parseFloat(negativeMarkingRate) || 0.25),
+        sourcePdf: pdfDocument ? { filename: pdfDocument.filename, uploadedAt: new Date() } : undefined,
+      }))
+    );
+
+    const topicPrefix = topic.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'EX') || 'EXAM';
+    const diffPrefix = (difficulty || 'M')[0].toUpperCase();
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const examCode = `${topicPrefix}-${diffPrefix}${rand}`;
+
+    const exam = await Exam.create({
+      title: title.trim(),
+      topic,
+      difficulty: difficulty.toLowerCase(),
+      description: description || `Official assessment for ${topic} (${difficulty.toUpperCase()} tier). Tests conceptual mastery and quantitative problem solving.`,
+      examCode,
+      scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
+      scheduledEndDate: scheduledEndDate ? new Date(scheduledEndDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      durationMinutes: parseInt(durationMinutes, 10) || 60,
+      passPercentage: parseInt(passPercentage, 10) || 50,
+      negativeMarking: !!negativeMarking,
+      negativeMarkingRate: parseFloat(negativeMarkingRate) || 0.25,
+      antiCheatSettings: {
+        fullScreenRequired: antiCheatSettings?.fullScreenRequired !== false,
+        maxTabSwitches: antiCheatSettings?.maxTabSwitches || 3,
+        blockCopyPaste: antiCheatSettings?.blockCopyPaste !== false,
+        disableRightClick: antiCheatSettings?.disableRightClick !== false,
+      },
+      questions: createdQuestionDocs.map((q) => q._id),
+      pdfDocument: pdfDocument || null,
+      createdBy: req.user.id,
+      status: 'published',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Exam "${exam.title}" successfully scheduled!`,
+      exam,
+    });
+  } catch (error) {
+    console.error('scheduleGeneratedExam error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Error scheduling exam' });
+  }
+};
+
