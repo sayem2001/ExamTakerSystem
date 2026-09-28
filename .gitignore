@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production builds
+client/dist/
+
+# Environment and sensitive keys
+.env
+*.env
+!.env.example
+atlas-credentials.env
+
+# Uploaded candidate and exam files
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Logs and system files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# IDE and local scratch
+.idea/
+.vscode/
+scratch/
