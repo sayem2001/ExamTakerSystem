@@ -62,8 +62,16 @@ const generateMCQsWithGemini = async ({
 
   const genAI = new GoogleGenerativeAI(activeKey);
 
-  // Preferred models in priority order
-  const modelCandidates = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-pro'];
+  // Preferred models in priority order for current Google AI Studio key
+  const modelCandidates = [
+    'gemini-flash-latest',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-pro',
+  ];
 
   // Slice text into manageable chunks if too large (e.g. max ~40,000 chars per prompt)
   const trimmedText = pdfText.slice(0, 45000);

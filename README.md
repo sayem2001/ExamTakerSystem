@@ -104,12 +104,12 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
-## 🔑 Demo Credentials
+## 🔑 Default Credentials
 
 | Role | Email | Password |
 |---|---|---|
-| **Administrator** | `admin@examtaker.com` | `AdminPassword123!` |
-| **Student** | `sayem@examtaker.com` | `StudentPassword123!` |
+| **Administrator** | `sayemmd035@gmail.com` | `SayemExam11011` |
+| **Student** | `student@examtaker.com` | `StudentPassword123!` |
 
 *(Both accounts are pre-seeded in the database, with 1-click quick login buttons on the Login page).*
 

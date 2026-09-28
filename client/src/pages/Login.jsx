@@ -166,7 +166,7 @@ export const Login = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <button
               type="button"
-              onClick={() => handleQuickDemo('admin@examtaker.com', 'AdminPassword123!')}
+              onClick={() => handleQuickDemo('sayemmd035@gmail.com', 'SayemExam11011')}
               className="btn-secondary"
               style={{ padding: '6px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
             >
@@ -175,7 +175,7 @@ export const Login = () => {
             </button>
             <button
               type="button"
-              onClick={() => handleQuickDemo('sayem@examtaker.com', 'StudentPassword123!')}
+              onClick={() => handleQuickDemo('student@examtaker.com', 'StudentPassword123!')}
               className="btn-secondary"
               style={{ padding: '6px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
             >

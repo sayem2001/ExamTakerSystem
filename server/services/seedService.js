@@ -17,16 +17,16 @@ const seedInitialData = async () => {
 
     // 1. Create Default Admin & Sample Students
     const admin = await User.create({
-      name: 'System Administrator',
-      email: 'admin@examtaker.com',
-      password: 'AdminPassword123!',
+      name: 'Md Sayem (Admin)',
+      email: 'sayemmd035@gmail.com',
+      password: 'SayemExam11011',
       role: 'admin',
       institution: 'Central Examination Board',
     });
 
     const student1 = await User.create({
-      name: 'Sayem Ahmed',
-      email: 'sayem@examtaker.com',
+      name: 'Student Candidate',
+      email: 'student@examtaker.com',
       password: 'StudentPassword123!',
       role: 'student',
       institution: 'Institute of Science & Technology',
@@ -354,6 +354,7 @@ const seedInitialData = async () => {
 
     // 6. System settings
     await SystemSetting.create({
+      geminiApiKey: process.env.GEMINI_API_KEY || '',
       platformName: 'ApexExam - AI Powered Mathematical Examination Platform',
       defaultDurationMinutes: 60,
       allowPublicRegistration: true,
