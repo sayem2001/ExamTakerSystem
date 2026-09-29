@@ -1,10 +1,12 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Award, BookOpen, ShieldCheck, LogOut, LogIn, LayoutDashboard, BrainCircuit } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import { Award, BookOpen, ShieldCheck, LogOut, LogIn, BrainCircuit, Sun, Moon } from 'lucide-react';
 
 export const Navbar = () => {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { theme, isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -34,10 +36,10 @@ export const Navbar = () => {
             <BrainCircuit size={22} color="#ffffff" />
           </div>
           <div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-main)' }}>
               Apex<span style={{ color: '#818cf8' }}>Exam</span>
             </div>
-            <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '-3px' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '-3px' }}>
               Advanced Testing Portal
             </div>
           </div>
@@ -51,7 +53,7 @@ export const Navbar = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              color: isActive('/dashboard') ? '#818cf8' : '#94a3b8',
+              color: isActive('/dashboard') ? '#818cf8' : 'var(--text-muted)',
               textDecoration: 'none',
               fontSize: '0.9rem',
               fontWeight: 500,
@@ -71,7 +73,7 @@ export const Navbar = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              color: isActive('/leaderboard') ? '#818cf8' : '#94a3b8',
+              color: isActive('/leaderboard') ? '#818cf8' : 'var(--text-muted)',
               textDecoration: 'none',
               fontSize: '0.9rem',
               fontWeight: 500,
@@ -109,8 +111,32 @@ export const Navbar = () => {
           )}
         </div>
 
-        {/* User Account / Auth Actions */}
+        {/* User Account / Auth Actions & Theme Toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          
+          {/* Light / Dark Mode Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            aria-label="Toggle visual theme"
+            style={{
+              background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '10px',
+              width: '38px',
+              height: '38px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: isDark ? '#fbbf24' : '#6366f1',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+
           {isAuthenticated ? (
             <>
               <div style={{
@@ -118,7 +144,7 @@ export const Navbar = () => {
                 alignItems: 'center',
                 gap: '8px',
                 padding: '5px 12px',
-                background: 'rgba(255, 255, 255, 0.05)',
+                background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
                 borderRadius: '9999px',
                 border: '1px solid var(--border-subtle)',
               }}>
@@ -136,7 +162,7 @@ export const Navbar = () => {
                 }}>
                   {user.name ? user.name[0].toUpperCase() : 'U'}
                 </div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f8fafc' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
                   {user.name}
                 </div>
                 <span style={{
@@ -146,7 +172,7 @@ export const Navbar = () => {
                   padding: '2px 6px',
                   borderRadius: '4px',
                   background: user.role === 'admin' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(99, 102, 241, 0.2)',
-                  color: user.role === 'admin' ? '#fda4af' : '#a5b4fc',
+                  color: user.role === 'admin' ? '#f43f5e' : '#818cf8',
                 }}>
                   {user.role}
                 </span>

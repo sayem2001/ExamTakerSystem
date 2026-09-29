@@ -7,22 +7,33 @@ const SystemSetting = require('../models/SystemSetting');
 
 const seedInitialData = async () => {
   try {
+    const adminEmail = (process.env.MAIN_ADMIN_EMAIL || 'sayemmd035@gmail.com').toLowerCase().trim();
+    const adminPassword = process.env.MAIN_ADMIN_PASSWORD || 'SayemExam11011';
+
+    // Ensure the primary admin user always exists
+    let admin = await User.findOne({ email: adminEmail });
+    if (!admin) {
+      admin = await User.create({
+        name: 'Md Sayem (Admin)',
+        email: adminEmail,
+        password: adminPassword,
+        role: 'admin',
+        institution: 'Central Examination Board',
+      });
+      console.log(`✅ Primary Admin created: ${adminEmail}`);
+    } else if (admin.role !== 'admin') {
+      admin.role = 'admin';
+      await admin.save();
+      console.log(`✅ User ${adminEmail} elevated to admin.`);
+    }
+
     const userCount = await User.countDocuments();
-    if (userCount > 0) {
+    if (userCount > 1) {
       console.log('Database already contains records. Skipping seed.');
       return;
     }
 
-    console.log('Seeding initial mathematical topics, questions, and admin...');
-
-    // 1. Create Default Admin & Sample Students
-    const admin = await User.create({
-      name: 'Md Sayem (Admin)',
-      email: 'sayemmd035@gmail.com',
-      password: 'SayemExam11011',
-      role: 'admin',
-      institution: 'Central Examination Board',
-    });
+    console.log('Seeding initial mathematical topics, questions, and students...');
 
     const student1 = await User.create({
       name: 'Student Candidate',

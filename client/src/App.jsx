@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Components
 import Navbar from './components/Navbar';
@@ -75,10 +76,11 @@ const LayoutContainer = ({ children }) => {
 
 export const App = () => {
   return (
-    <AuthProvider>
-      <Router>
-        <LayoutContainer>
-          <Routes>
+    <ThemeProvider>
+      <AuthProvider>
+        <Router>
+          <LayoutContainer>
+            <Routes>
             {/* Public / Candidate Accessible */}
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
@@ -169,6 +171,7 @@ export const App = () => {
         </LayoutContainer>
       </Router>
     </AuthProvider>
+  </ThemeProvider>
   );
 };
 

@@ -20,12 +20,20 @@ import {
   RefreshCw,
   Eye,
   Trash2,
+  Search,
+  Globe,
+  Layers,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Filter,
+  CheckSquare,
 } from 'lucide-react';
 
 export const AdminAiPdfImport = () => {
   const navigate = useNavigate();
 
-  // Wizard Steps: 1 = Upload / Input, 2 = Review Questions, 3 = Schedule Exam, 4 = Published & Active
+  // Wizard Steps: 1 = Upload & Generate, 2 = Review Questions, 3 = Schedule Exam, 4 = Published & Active
   const [step, setStep] = useState(1);
 
   // Input source mode: 'pdf' | 'paste'
@@ -35,14 +43,28 @@ export const AdminAiPdfImport = () => {
   const [pdfFile, setPdfFile] = useState(null);
   const [pastedText, setPastedText] = useState('');
   const [topic, setTopic] = useState('Profit and Loss');
-  const [questionCount, setQuestionCount] = useState(30);
+  const [questionCount, setQuestionCount] = useState(15);
+  const [customCountInput, setCustomCountInput] = useState('');
   const [difficulty, setDifficulty] = useState('medium'); // 'easy' | 'medium' | 'hard'
   const [generationMode, setGenerationMode] = useState('single-scheduled'); // 'single-scheduled' | 'auto-3-exams'
 
-  // Processing state
+  // Phase 1: Source Document Extraction State
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [sourceQuestions, setSourceQuestions] = useState([]);
+  const [distinctCases, setDistinctCases] = useState([]);
+  const [selectedCaseFilter, setSelectedCaseFilter] = useState('all');
+  const [showSourceDrawer, setShowSourceDrawer] = useState(true);
+  const [extractionMeta, setExtractionMeta] = useState(null);
+
+  // Phase 2: Generation State
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [extractedQuestions, setExtractedQuestions] = useState([]);
+  const [webSearchInsights, setWebSearchInsights] = useState(null);
+  const [showSearchInsights, setShowSearchInsights] = useState(true);
+
+  // General Processing & Output State
   const [processing, setProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
-  const [extractedQuestions, setExtractedQuestions] = useState([]);
   const [pdfMeta, setPdfMeta] = useState(null);
   const [createdExams, setCreatedExams] = useState([]);
   const [singleScheduledExam, setSingleScheduledExam] = useState(null);
@@ -76,6 +98,9 @@ export const AdminAiPdfImport = () => {
       }
       setPdfFile(file);
       setError('');
+      setSourceQuestions([]);
+      setDistinctCases([]);
+      setExtractionMeta(null);
 
       // Auto-detect topic from filename
       const filename = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
@@ -107,6 +132,10 @@ export const AdminAiPdfImport = () => {
   const handlePastedTextChange = (text) => {
     setPastedText(text);
     setError('');
+    setSourceQuestions([]);
+    setDistinctCases([]);
+    setExtractionMeta(null);
+
     if (text.length > 15) {
       if (/profit|loss|selling\s*price|cost\s*price|markup|discount/i.test(text)) {
         setTopic('Profit and Loss');
@@ -130,8 +159,139 @@ export const AdminAiPdfImport = () => {
     }
   };
 
-  // Step 1 -> Process with Gemini AI (supports both PDF and direct pasted text)
-  const handleProcessQuestions = async () => {
+  // =========================================================================
+  // PHASE 1: READ ENTIRE DOCUMENT & EXTRACT ALL QUESTIONS (FILTER THEORY)
+  // =========================================================================
+  const handleScanAndExtract = async () => {
+    if (inputMode === 'pdf' && !pdfFile) {
+      setError('Please select an examination PDF document first.');
+      return;
+    }
+    if (inputMode === 'paste' && !pastedText.trim()) {
+      setError('Please paste examination question text into the text area first.');
+      return;
+    }
+
+    setIsExtracting(true);
+    setProcessing(true);
+    setError('');
+    setProgressMsg(
+      inputMode === 'pdf'
+        ? `Reading entire PDF, filtering theoretical definitions & formula sheets, and extracting all questions...`
+        : `Scanning pasted text, filtering introductory notes & formulas, and extracting all questions...`
+    );
+
+    try {
+      const formData = new FormData();
+      if (inputMode === 'pdf') {
+        formData.append('pdf', pdfFile);
+      } else {
+        formData.append('pastedText', pastedText.trim());
+      }
+      formData.append('topic', topic.trim());
+
+      const res = await api.extractQuestionsFromDoc(formData);
+
+      if (!res.success || !res.extractedQuestions || res.extractedQuestions.length === 0) {
+        throw new Error(res.message || 'No questions could be extracted from the document.');
+      }
+
+      setSourceQuestions(res.extractedQuestions);
+      setDistinctCases(res.meta?.distinctCases || []);
+      setExtractionMeta(res.meta);
+      if (res.meta?.detectedTopic) {
+        setTopic(res.meta.detectedTopic);
+      }
+      if (res.meta?.filename) {
+        setPdfMeta({
+          filename: res.meta.filename,
+          originalName: res.meta.originalName,
+        });
+      }
+      setShowSourceDrawer(true);
+      setSelectedCaseFilter('all');
+    } catch (err) {
+      console.error('Scan & extraction error:', err);
+      setError(err.message || 'Failed to extract questions from document');
+    } finally {
+      setIsExtracting(false);
+      setProcessing(false);
+      setProgressMsg('');
+    }
+  };
+
+  // =========================================================================
+  // PHASE 2: GENERATE CONFIGURED NUMBER OF QUESTIONS WITH DIVERSITY & DIFFICULTY
+  // =========================================================================
+  const handleGenerateQuestions = async () => {
+    // If questions have not been scanned yet, run 1-click end-to-end
+    if (sourceQuestions.length === 0) {
+      return handleDirectProcessQuestions();
+    }
+
+    const effectiveCount = customCountInput ? parseInt(customCountInput, 10) : questionCount;
+    if (!effectiveCount || effectiveCount < 1) {
+      setError('Please provide a valid question count.');
+      return;
+    }
+
+    setIsGenerating(true);
+    setProcessing(true);
+    setError('');
+    setProgressMsg(
+      difficulty === 'hard'
+        ? `Researching GMAT Club & competitive exam archives for tricky modification patterns, then synthesizing ${effectiveCount} GMAT-level questions across diverse cases...`
+        : `Synthesizing ${effectiveCount} ${difficulty.toUpperCase()} questions across diverse problem cases...`
+    );
+
+    try {
+      const payload = {
+        extractedQuestions: sourceQuestions,
+        topic: topic.trim(),
+        difficulty,
+        questionCount: effectiveCount,
+        pdfDocument: pdfMeta,
+      };
+
+      const res = await api.generateFromExtractedQuestions(payload);
+
+      if (!res.success || !res.questions || res.questions.length === 0) {
+        throw new Error(res.message || 'No questions could be synthesized.');
+      }
+
+      const effectiveTopic = res.meta?.detectedTopic || topic.trim();
+      setTopic(effectiveTopic);
+      setExtractedQuestions(res.questions);
+      setWebSearchInsights(res.meta?.webSearchInsights || null);
+
+      if (generationMode === 'auto-3-exams') {
+        setProgressMsg('Auto-creating 3 exams: Easy, Medium, and Hard...');
+        const autoRes = await api.autoCreateThreeExams({
+          topic: effectiveTopic,
+          questions: res.questions,
+          pdfDocument: pdfMeta,
+        });
+
+        if (autoRes.success) {
+          setCreatedExams(autoRes.exams);
+          setStep(4);
+        }
+      } else {
+        setScheduleTitle(`${effectiveTopic} Assessment (${difficulty.toUpperCase()} Tier)`);
+        setStep(2); // Proceed to Review Step
+      }
+    } catch (err) {
+      console.error('Question generation error:', err);
+      setError(err.message || 'Failed to generate questions');
+    } finally {
+      setIsGenerating(false);
+      setProcessing(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Direct 1-Click Synthesis (Bypasses Phase 1 review if desired)
+  const handleDirectProcessQuestions = async () => {
     if (inputMode === 'pdf' && !pdfFile) {
       setError('Please upload an examination PDF document first.');
       return;
@@ -145,12 +305,15 @@ export const AdminAiPdfImport = () => {
       return;
     }
 
+    const effectiveCount = customCountInput ? parseInt(customCountInput, 10) : questionCount;
+
     setProcessing(true);
+    setIsGenerating(true);
     setError('');
     setProgressMsg(
-      inputMode === 'pdf'
-        ? `Extracting text from PDF and scanning problem archetypes...`
-        : `Scanning pasted problems and analyzing archetypes...`
+      difficulty === 'hard'
+        ? `Scanning entire document, researching GMAT Club archives for modification blueprints, and generating ${effectiveCount} GMAT-level questions...`
+        : `Scanning entire document and synthesizing ${effectiveCount} diverse ${difficulty.toUpperCase()} questions...`
     );
 
     try {
@@ -161,12 +324,9 @@ export const AdminAiPdfImport = () => {
         formData.append('pastedText', pastedText.trim());
       }
       formData.append('topic', topic.trim());
-      formData.append('questionCount', questionCount);
+      formData.append('questionCount', effectiveCount);
       formData.append('difficulty', difficulty);
 
-      setProgressMsg(
-        `Gemini 3.8 Flash is analyzing the document and synthesizing ${questionCount} ${difficulty.toUpperCase()} questions...`
-      );
       const res = await api.uploadAndProcessPdf(formData);
 
       if (!res.success || !res.questions || res.questions.length === 0) {
@@ -177,6 +337,12 @@ export const AdminAiPdfImport = () => {
       setTopic(effectiveTopic);
       setExtractedQuestions(res.questions);
       setPdfMeta(res.meta);
+      setWebSearchInsights(res.meta?.webSearchInsights || null);
+
+      if (res.extractedSourceQuestions && res.extractedSourceQuestions.length > 0) {
+        setSourceQuestions(res.extractedSourceQuestions);
+        setDistinctCases(res.meta?.distinctCases || []);
+      }
 
       if (generationMode === 'auto-3-exams') {
         setProgressMsg('Auto-synthesizing 3 exams: Easy, Medium, and Hard...');
@@ -204,6 +370,7 @@ export const AdminAiPdfImport = () => {
       setError(err.message || 'Failed to synthesize questions with Gemini');
     } finally {
       setProcessing(false);
+      setIsGenerating(false);
       setProgressMsg('');
     }
   };
@@ -261,33 +428,41 @@ export const AdminAiPdfImport = () => {
     setTimeout(() => setCopiedCode(null), 2500);
   };
 
+  // Remove a single question from review list
+  const handleDeleteQuestion = (idxToDelete) => {
+    setExtractedQuestions(extractedQuestions.filter((_, idx) => idx !== idxToDelete));
+  };
+
   // Difficulty explanation helper
   const getDifficultyInfo = (diff) => {
     switch (diff) {
       case 'easy':
         return {
-          title: 'Easy: Numerical Variation Only',
+          title: 'Easy: Direct Value Variation',
+          subtitle: 'Preserves exact question concept, scenario, & relationships from source',
           color: '#34d399',
           bg: 'rgba(16, 185, 129, 0.1)',
           border: 'rgba(16, 185, 129, 0.3)',
-          desc: 'Preserves the identical 1-step logic and formula structure. All numbers, values, and entities are uniquely changed, with newly recalculated options & step-by-step solutions.',
+          desc: 'Reads questions directly from the document and simply modifies the numerical values, prices, percentages, or rates. Keeps the exact question scenario, entities, and relationships 100% intact while recalculating all options, answer key, and step-by-step solutions.',
         };
       case 'hard':
         return {
-          title: 'Hard: Complex Word Problem & Multi-Tier Constraints',
+          title: 'Hard: GMAT-Level Difficulty & Live Web Search Grounding',
+          subtitle: 'GMAT Problem Solving & Data Sufficiency with forum-researched trap patterns',
           color: '#f43f5e',
           bg: 'rgba(244, 63, 94, 0.1)',
           border: 'rgba(244, 63, 94, 0.3)',
-          desc: 'Synthesizes challenging multi-tier word problems with realistic real-world constraints (e.g. faulty weights, fractional spoilage, tiered bulk rates, compound algebraic equations).',
+          desc: 'Reads original questions and significantly transforms them into GMAT-caliber quantitative reasoning problems within the topic scope. Conducts live web research across GMAT Club, Beat The GMAT, and exam forums for tricky modification archetypes and subtle distractor traps.',
         };
       case 'medium':
       default:
         return {
-          title: 'Medium: Conceptual Extension & Secondary Step',
+          title: 'Medium: Concept-Preserving Slight Modification',
+          subtitle: 'Rephrased context, inverted unknown variables, or added intermediate steps',
           color: '#fbbf24',
           bg: 'rgba(245, 158, 11, 0.1)',
           border: 'rgba(245, 158, 11, 0.3)',
-          desc: 'Adds a secondary calculation step, inverts unknown variables (e.g. solve for original cost given final selling price), or combines sequential discounts/taxes.',
+          desc: 'The entire question and topic remain intact, but slight modifications are applied: rephrased wording, inverting variables to solve for different unknowns (e.g. solve for Cost Price instead of Selling Price), or adding extra contextual info while hiding intermediate details.',
         };
     }
   };
@@ -297,6 +472,9 @@ export const AdminAiPdfImport = () => {
   const resetAll = () => {
     setPdfFile(null);
     setPastedText('');
+    setSourceQuestions([]);
+    setDistinctCases([]);
+    setExtractionMeta(null);
     setExtractedQuestions([]);
     setSingleScheduledExam(null);
     setCreatedExams([]);
@@ -304,26 +482,31 @@ export const AdminAiPdfImport = () => {
     setStep(1);
   };
 
+  // Filtered source questions based on selected case badge
+  const filteredSourceQuestions = selectedCaseFilter === 'all'
+    ? sourceQuestions
+    : sourceQuestions.filter((q) => q.caseType === selectedCaseFilter);
+
   return (
-    <div style={{ maxWidth: '1100px', margin: '2.5rem auto 5rem', padding: '0 1.5rem' }}>
+    <div style={{ maxWidth: '1140px', margin: '2.5rem auto 5rem', padding: '0 1.5rem' }}>
       
       {/* Header & Stepper */}
       <div style={{ marginBottom: '2.5rem' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#c084fc', fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px' }}>
           <Sparkles size={18} />
-          <span>Gemini 3.8 Flash Intelligent Exam Creator</span>
+          <span>Intelligent Exam Synthesis & Extraction System</span>
         </div>
         <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem' }}>
-          AI Exam Generator & Scheduler
+          AI PDF Exam Generator & Question Studio
         </h1>
-        <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '820px' }}>
-          Upload math examination PDFs or paste problem sets directly. Gemini AI analyzes problem archetypes and synthesizes customized, brand-new MCQs at your selected difficulty level without copy-pasting the original.
+        <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '860px', lineHeight: 1.6 }}>
+          Upload math examination PDFs or paste problem sets. The system reads the full document, filters out theoretical text and formulas, lists all source questions, and generates diverse modified questions calibrated to your exact difficulty specifications.
         </p>
 
-        {/* Wizard Step Indicators (Fully Clickable for Easy Forward & Backward Navigation) */}
+        {/* Wizard Step Indicators */}
         <div style={{ display: 'flex', gap: '10px', marginTop: '1.5rem', flexWrap: 'wrap' }}>
           {[
-            { num: 1, label: 'Upload & Difficulty' },
+            { num: 1, label: 'Document & Difficulty' },
             { num: 2, label: `Review Questions (${extractedQuestions.length})` },
             { num: 3, label: 'Schedule & Proctoring' },
             { num: 4, label: 'Published & Active' },
@@ -378,12 +561,11 @@ export const AdminAiPdfImport = () => {
                       height: '20px',
                       borderRadius: '50%',
                       background: isActive ? '#6366f1' : 'rgba(255, 255, 255, 0.08)',
-                      color: isActive ? '#fff' : 'inherit',
-                      fontSize: '0.75rem',
-                      display: 'inline-flex',
+                      display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontWeight: 700,
+                      fontSize: '0.75rem',
+                      color: isActive ? '#fff' : '#94a3b8',
                     }}
                   >
                     {s.num}
@@ -396,6 +578,7 @@ export const AdminAiPdfImport = () => {
         </div>
       </div>
 
+      {/* Global Error Banner */}
       {error && (
         <div style={{
           background: 'rgba(244, 63, 94, 0.15)',
@@ -413,293 +596,580 @@ export const AdminAiPdfImport = () => {
         </div>
       )}
 
-      {/* ================= STEP 1: UPLOAD / DIRECT PASTE & DIFFICULTY ================= */}
+      {/* ================= STEP 1: UPLOAD, EXTRACT & CONFIGURE GENERATION ================= */}
       {step === 1 && (
-        <div className="glass-card" style={{ padding: '2.5rem', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           
-          {/* Mode Switcher: PDF Upload vs Direct Text Paste */}
-          <div style={{
-            display: 'flex',
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '12px',
-            padding: '4px',
-            marginBottom: '1.75rem',
-            gap: '4px',
-          }}>
-            <button
-              type="button"
-              onClick={() => {
-                setInputMode('pdf');
-                setError('');
-              }}
-              style={{
-                flex: 1,
-                padding: '11px 16px',
-                borderRadius: '8px',
-                fontSize: '0.9rem',
-                fontWeight: 700,
-                background: inputMode === 'pdf' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'transparent',
-                color: inputMode === 'pdf' ? '#fff' : '#94a3b8',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'all 0.2s',
-              }}
-            >
-              <UploadCloud size={18} />
-              <span>Upload Exam PDF</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setInputMode('paste');
-                setError('');
-              }}
-              style={{
-                flex: 1,
-                padding: '11px 16px',
-                borderRadius: '8px',
-                fontSize: '0.9rem',
-                fontWeight: 700,
-                background: inputMode === 'paste' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'transparent',
-                color: inputMode === 'paste' ? '#fff' : '#94a3b8',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'all 0.2s',
-              }}
-            >
-              <FileText size={18} />
-              <span>Direct Question / Text Paste</span>
-            </button>
-          </div>
-
-          {/* TAB A: PDF DROPZONE */}
-          {inputMode === 'pdf' && (
-            <div style={{
-              border: '2px dashed rgba(99, 102, 241, 0.4)',
-              borderRadius: '16px',
-              padding: '2.5rem 2rem',
-              textAlign: 'center',
-              background: 'rgba(99, 102, 241, 0.03)',
-              marginBottom: '2rem',
-              position: 'relative',
-              cursor: 'pointer',
-            }}>
-              <input
-                type="file"
-                accept=".pdf"
-                onChange={handleFileChange}
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  opacity: 0,
-                  cursor: 'pointer',
-                }}
-              />
-              <div style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '12px',
-                background: 'rgba(99, 102, 241, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 1rem',
-              }}>
-                <UploadCloud size={28} color="#818cf8" />
+          {/* SECTION A: SOURCE DOCUMENT INPUT */}
+          <div className="glass-card" style={{ padding: '2rem 2.5rem', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <BookOpen size={20} color="#818cf8" />
+                  <span>Phase 1: Upload Document & Extract Source Questions</span>
+                </h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '2px' }}>
+                  The document will be read completely, theoretical text and formulas filtered, and all original questions cataloged.
+                </p>
               </div>
 
-              {pdfFile ? (
-                <div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#34d399' }}>
-                    📄 {pdfFile.name}
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
-                    {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB • Ready for AI Synthesis
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPdfFile(null);
-                    }}
-                    style={{
-                      marginTop: '10px',
-                      background: 'rgba(244, 63, 94, 0.15)',
-                      border: '1px solid rgba(244, 63, 94, 0.3)',
-                      color: '#fda4af',
-                      padding: '4px 12px',
-                      borderRadius: '6px',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Change / Remove File
-                  </button>
+              {/* Mode Switcher: PDF Upload vs Direct Text Paste */}
+              <div style={{
+                display: 'flex',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '10px',
+                padding: '3px',
+                gap: '4px',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMode('pdf');
+                    setError('');
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '7px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    background: inputMode === 'pdf' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'transparent',
+                    color: inputMode === 'pdf' ? '#fff' : '#94a3b8',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <UploadCloud size={16} />
+                  <span>Upload PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMode('paste');
+                    setError('');
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '7px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    background: inputMode === 'paste' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'transparent',
+                    color: inputMode === 'paste' ? '#fff' : '#94a3b8',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <FileText size={16} />
+                  <span>Direct Text Paste</span>
+                </button>
+              </div>
+            </div>
+
+            {/* TAB A: PDF DROPZONE */}
+            {inputMode === 'pdf' && (
+              <div style={{
+                border: '2px dashed rgba(99, 102, 241, 0.4)',
+                borderRadius: '14px',
+                padding: '2rem 1.5rem',
+                textAlign: 'center',
+                background: 'rgba(99, 102, 241, 0.03)',
+                marginBottom: '1.5rem',
+                position: 'relative',
+                cursor: 'pointer',
+              }}>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    opacity: 0,
+                    cursor: 'pointer',
+                  }}
+                />
+                <div style={{
+                  width: '52px',
+                  height: '52px',
+                  borderRadius: '12px',
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 0.75rem',
+                }}>
+                  <UploadCloud size={26} color="#818cf8" />
                 </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>
-                    Click to select or drag and drop your exam PDF
+
+                {pdfFile ? (
+                  <div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#34d399' }}>
+                      📄 {pdfFile.name}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
+                      {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB • Ready for Full Document Reading & Question Extraction
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPdfFile(null);
+                        setSourceQuestions([]);
+                      }}
+                      style={{
+                        marginTop: '10px',
+                        background: 'rgba(244, 63, 94, 0.15)',
+                        border: '1px solid rgba(244, 63, 94, 0.3)',
+                        color: '#fda4af',
+                        padding: '4px 12px',
+                        borderRadius: '6px',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Change / Remove File
+                    </button>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '6px' }}>
-                    Extracts complete document text and identifies diverse question archetypes
+                ) : (
+                  <div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
+                      Click to select or drag and drop your exam PDF
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
+                      Reads full document from first to last page • Ignores theoretical content & formulas
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB B: DIRECT QUESTION TEXT PASTE */}
+            {inputMode === 'paste' && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1' }}>
+                    Paste Examination Questions, Exercises, or Chapter Material:
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                      {pastedText.trim().split(/\s+/).filter(Boolean).length} words • {pastedText.length} characters
+                    </span>
+                    {pastedText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPastedText('');
+                          setSourceQuestions([]);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#f43f5e',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <Trash2 size={12} />
+                        <span>Clear</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  className="form-input"
+                  rows={8}
+                  placeholder={`Paste your problem set or chapter contents here...\n\nExample:\nCHAPTER 3: PROFIT & LOSS\nTheory: Profit is SP - CP...\n\nProblems:\n1. A merchant marks goods 25% above cost price and gives 10% discount...\n2. By selling 33 meters of cloth, a shopkeeper gains the selling price of 11 meters...`}
+                  value={pastedText}
+                  onChange={(e) => handlePastedTextChange(e.target.value)}
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.88rem',
+                    lineHeight: 1.6,
+                    resize: 'vertical',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Action Bar for Phase 1 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1' }}>
+                  Mathematical Topic:
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Profit and Loss"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  style={{ width: '240px', padding: '8px 12px' }}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleScanAndExtract}
+                disabled={(inputMode === 'pdf' ? !pdfFile : !pastedText.trim()) || isExtracting || processing}
+                className="btn-primary"
+                style={{
+                  padding: '12px 24px',
+                  fontSize: '0.95rem',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                {isExtracting ? (
+                  <>
+                    <div className="animate-spin" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%' }} />
+                    <span>Extracting All Questions...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search size={18} />
+                    <span>{sourceQuestions.length > 0 ? 'Re-scan Document Questions' : 'Scan & Extract Document Questions'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+
+          {/* SECTION B: EXTRACTED SOURCE QUESTIONS DASHBOARD & PREVIEW */}
+          {sourceQuestions.length > 0 && (
+            <div className="glass-card" style={{ padding: '2rem 2.5rem', border: '1px solid rgba(52, 211, 153, 0.4)' }}>
+              
+              {/* Header & Metrics */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#34d399', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>
+                    <CheckCircle2 size={16} />
+                    <span>Document Analysis Complete</span>
+                  </div>
+                  <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc' }}>
+                    Extracted Source Questions ({sourceQuestions.length})
+                  </h3>
+                  <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                    {extractionMeta?.theoryFiltered || 'Filtered out theoretical explanations, definitions, and formulas.'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSourceDrawer(!showSourceDrawer)}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', padding: '8px 14px' }}
+                >
+                  <Eye size={16} />
+                  <span>{showSourceDrawer ? 'Hide Source Questions' : `Preview Extracted Questions (${sourceQuestions.length})`}</span>
+                  {showSourceDrawer ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+              </div>
+
+              {/* Distinct Case Types Filter Bar */}
+              {distinctCases.length > 0 && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#cbd5e1', fontSize: '0.82rem', fontWeight: 700 }}>
+                    <Layers size={14} color="#a78bfa" />
+                    <span>Problem Cases & Archetypes Detected in Document ({distinctCases.length}):</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCaseFilter('all')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        background: selectedCaseFilter === 'all' ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.03)',
+                        border: selectedCaseFilter === 'all' ? '1.5px solid #818cf8' : '1px solid var(--border-subtle)',
+                        color: selectedCaseFilter === 'all' ? '#a5b4fc' : '#94a3b8',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      All Cases ({sourceQuestions.length})
+                    </button>
+                    {distinctCases.map((cName, cIdx) => {
+                      const caseCount = sourceQuestions.filter((q) => q.caseType === cName).length;
+                      const isSelected = selectedCaseFilter === cName;
+                      return (
+                        <button
+                          key={cIdx}
+                          type="button"
+                          onClick={() => setSelectedCaseFilter(cName)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            background: isSelected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                            border: isSelected ? '1.5px solid #34d399' : '1px solid var(--border-subtle)',
+                            color: isSelected ? '#34d399' : '#cbd5e1',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {cName} ({caseCount})
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* TAB B: DIRECT QUESTION TEXT PASTE */}
-          {inputMode === 'paste' && (
-            <div style={{ marginBottom: '2rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1' }}>
-                  Paste Exam Questions, Problems, or Chapter Material:
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-                    {pastedText.trim().split(/\s+/).filter(Boolean).length} words • {pastedText.length} characters
-                  </span>
-                  {pastedText && (
-                    <button
-                      type="button"
-                      onClick={() => setPastedText('')}
+              {/* Collapsible Extracted Questions Drawer */}
+              {showSourceDrawer && (
+                <div style={{
+                  maxHeight: '380px',
+                  overflowY: 'auto',
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-subtle)',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}>
+                  {filteredSourceQuestions.map((sq, sqIdx) => (
+                    <div
+                      key={sq.originalIndex || sqIdx}
                       style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#f43f5e',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        padding: '2px 6px',
+                        padding: '12px 14px',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.05)',
+                        borderRadius: '8px',
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
+                        flexDirection: 'column',
+                        gap: '6px',
                       }}
                     >
-                      <Trash2 size={12} />
-                      <span>Clear</span>
-                    </button>
-                  )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#818cf8' }}>
+                          Source Question #{sq.originalIndex || sqIdx + 1}
+                        </span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            background: 'rgba(99, 102, 241, 0.15)',
+                            color: '#a5b4fc',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(99, 102, 241, 0.3)',
+                          }}>
+                            {sq.caseType}
+                          </span>
+                          {sq.hasNumericalValues && (
+                            <span style={{
+                              fontSize: '0.7rem',
+                              fontWeight: 600,
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: '#34d399',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                            }}>
+                              Values Ready
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.9rem', color: '#e2e8f0', lineHeight: 1.5 }}>
+                        <MathRenderer text={sq.questionText} />
+                      </div>
+                      {sq.coreConcept && (
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          Principle: <em>{sq.coreConcept}</em>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              </div>
-              <textarea
-                className="form-input"
-                rows={10}
-                placeholder={`Paste your problem set, questions, or chapter exercises directly here...\n\nExample:\n1. A shopkeeper sells an article at 20% profit. If cost price increases by 10% and selling price increases by $26, the profit becomes 25%. What was the original cost price?\n2. A certain desk costs a shopkeeper taka 80. At what price must he sell it if he is to make a profit of 25% on the selling price?\n3. An item marked at $150 is sold after two successive discounts of 10% and 5%...`}
-                value={pastedText}
-                onChange={(e) => handlePastedTextChange(e.target.value)}
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: '0.9rem',
-                  lineHeight: 1.6,
-                  resize: 'vertical',
-                }}
-              />
+              )}
+
             </div>
           )}
 
-          {/* Form Options */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
-                Mathematical Topic / Chapter
-              </label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. Profit and Loss, Calculus, Linear Algebra"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                required
-              />
+          {/* SECTION C: QUESTION GENERATION CONFIGURATION (PHASE 2) */}
+          <div className="glass-card" style={{ padding: '2rem 2.5rem', border: '1px solid rgba(139, 92, 246, 0.35)' }}>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sliders size={20} color="#c084fc" />
+                <span>Phase 2: Question Generation & Difficulty Settings</span>
+              </h2>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '2px' }}>
+                Specify how many questions to synthesize and select your desired difficulty calibration.
+              </p>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
-                Target Question Count
-              </label>
-              <select
-                className="form-select"
-                value={questionCount}
-                onChange={(e) => setQuestionCount(parseInt(e.target.value, 10))}
-              >
-                <option value={10}>10 Questions (Short Test)</option>
-                <option value={15}>15 Questions (Standard Practice)</option>
-                <option value={20}>20 Questions (Standard Quiz)</option>
-                <option value={25}>25 Questions (Section Exam)</option>
-                <option value={30}>30 Questions (Full Assessment)</option>
-                <option value={40}>40 Questions (Comprehensive Exam)</option>
-                <option value={50}>50 Questions (Mega Bank)</option>
-              </select>
+            {/* Target Question Count & Workflow Mode */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem', marginBottom: '1.75rem' }}>
+              
+              {/* Question Count Selector */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '8px' }}>
+                  Target Question Count:
+                </label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {[5, 10, 15, 20, 25, 30].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => {
+                        setQuestionCount(num);
+                        setCustomCountInput('');
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                        background: (!customCountInput && questionCount === num) ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'rgba(255, 255, 255, 0.03)',
+                        color: (!customCountInput && questionCount === num) ? '#fff' : '#cbd5e1',
+                        border: (!customCountInput && questionCount === num) ? '1px solid #818cf8' : '1px solid var(--border-subtle)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {num} Qs
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Or custom count:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    placeholder="e.g. 35"
+                    className="form-input"
+                    style={{ width: '100px', padding: '5px 10px', fontSize: '0.85rem' }}
+                    value={customCountInput}
+                    onChange={(e) => setCustomCountInput(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Workflow Mode */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '8px' }}>
+                  Workflow Mode:
+                </label>
+                <select
+                  className="form-select"
+                  value={generationMode}
+                  onChange={(e) => setGenerationMode(e.target.value)}
+                >
+                  <option value="single-scheduled">
+                    📅 Synthesize & Review for Exam Scheduling
+                  </option>
+                  <option value="auto-3-exams">
+                    ⚡ Auto-create 3 Exams (Easy, Medium, Hard Tiers)
+                  </option>
+                </select>
+              </div>
+
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
-                Workflow Mode
-              </label>
-              <select
-                className="form-select"
-                value={generationMode}
-                onChange={(e) => setGenerationMode(e.target.value)}
-              >
-                <option value="single-scheduled">
-                  📅 Synthesize Questions & Schedule Exam
-                </option>
-                <option value="auto-3-exams">
-                  ⚡ Auto-create 3 Exams (Easy, Med, Hard)
-                </option>
-              </select>
-            </div>
-          </div>
-
-          {/* Difficulty Selection & Indicator Box */}
-          {generationMode === 'single-scheduled' && (
-            <div style={{ marginBottom: '2rem' }}>
+            {/* Difficulty Cards */}
+            <div style={{ marginBottom: '1.75rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '8px' }}>
                 Select Target Difficulty Level & Modification Strength:
               </label>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-                {[
-                  { id: 'easy', label: 'Easy (Number Variation Only)', color: '#34d399' },
-                  { id: 'medium', label: 'Medium (Concept Extension)', color: '#fbbf24' },
-                  { id: 'hard', label: 'Hard (Word Problem / Multi-Tier)', color: '#f43f5e' },
-                ].map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setDifficulty(d.id)}
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: '10px',
-                      textAlign: 'left',
-                      background: difficulty === d.id ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.02)',
-                      border: difficulty === d.id ? `2px solid ${d.color}` : '1px solid var(--border-subtle)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: d.color }}>
-                      {d.label}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                
+                {/* EASY TIER */}
+                <div
+                  onClick={() => setDifficulty('easy')}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    background: difficulty === 'easy' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                    border: difficulty === 'easy' ? '2px solid #10b981' : '1px solid var(--border-subtle)',
+                    transition: 'all 0.2s ease',
+                    position: 'relative',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#34d399' }}>
+                      🟢 Easy (Value Modification)
                     </span>
-                  </button>
-                ))}
+                    {difficulty === 'easy' && <Check size={18} color="#34d399" />}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                    Preserves original question statements, entities, and context intact. Simply modifies numerical values and recalculates solutions.
+                  </p>
+                </div>
+
+                {/* MEDIUM TIER */}
+                <div
+                  onClick={() => setDifficulty('medium')}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    background: difficulty === 'medium' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                    border: difficulty === 'medium' ? '2px solid #f59e0b' : '1px solid var(--border-subtle)',
+                    transition: 'all 0.2s ease',
+                    position: 'relative',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#fbbf24' }}>
+                      🟡 Medium (Slight Modification)
+                    </span>
+                    {difficulty === 'medium' && <Check size={18} color="#fbbf24" />}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                    Question concept intact with slight modifications: rephrased wording, inverting variables to find solutions, or adding intermediate details.
+                  </p>
+                </div>
+
+                {/* HARD TIER (GMAT-LEVEL) */}
+                <div
+                  onClick={() => setDifficulty('hard')}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    background: difficulty === 'hard' ? 'rgba(244, 63, 94, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                    border: difficulty === 'hard' ? '2px solid #f43f5e' : '1px solid var(--border-subtle)',
+                    transition: 'all 0.2s ease',
+                    position: 'relative',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#f43f5e' }}>
+                      🔴 Hard (GMAT-Level + Web Search)
+                    </span>
+                    {difficulty === 'hard' && <Check size={18} color="#f43f5e" />}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                    Produces GMAT-level quantitative questions (Problem Solving & Data Sufficiency). Searches GMAT Club & forums for tricky trap patterns.
+                  </p>
+                </div>
+
               </div>
 
-              {/* Dynamic Indicator Callout */}
+              {/* Dynamic Difficulty Callout Box */}
               <div style={{
                 background: currentDiffInfo.bg,
                 border: `1px solid ${currentDiffInfo.border}`,
@@ -711,83 +1181,135 @@ export const AdminAiPdfImport = () => {
               }}>
                 <Sliders size={20} color={currentDiffInfo.color} style={{ flexShrink: 0, marginTop: '2px' }} />
                 <div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: currentDiffInfo.color }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: currentDiffInfo.color }}>
                     {currentDiffInfo.title}
                   </div>
                   <div style={{ fontSize: '0.85rem', color: '#e2e8f0', marginTop: '3px', lineHeight: 1.5 }}>
                     {currentDiffInfo.desc}
                   </div>
+
+                  {difficulty === 'hard' && (
+                    <div style={{
+                      marginTop: '8px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      color: '#f43f5e',
+                      background: 'rgba(244, 63, 94, 0.15)',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(244, 63, 94, 0.3)',
+                    }}>
+                      <Globe size={13} />
+                      <span>Live Web Grounding Active: GMAT Club & Competitive Exam Forum Blueprints Included</span>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Progress Banner */}
-          {processing && (
+            </div>
+
+            {/* Diverse Coverage Guarantee Notice */}
             <div style={{
-              background: 'rgba(99, 102, 241, 0.1)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
+              background: 'rgba(99, 102, 241, 0.08)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
               borderRadius: '10px',
-              padding: '1.25rem',
+              padding: '0.85rem 1.25rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '14px',
-              marginBottom: '2rem',
+              gap: '10px',
+              marginBottom: '1.75rem',
+              color: '#c7d2fe',
+              fontSize: '0.85rem',
             }}>
-              <div className="animate-spin" style={{
-                width: '24px',
-                height: '24px',
-                border: '3px solid rgba(99, 102, 241, 0.3)',
-                borderTopColor: '#6366f1',
-                borderRadius: '50%',
-              }} />
-              <div>
-                <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.95rem' }}>
-                  Processing with Gemini 3.8 Flash Engine...
-                </div>
-                <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginTop: '2px' }}>
-                  {progressMsg}
-                </div>
-              </div>
+              <CheckSquare size={18} color="#818cf8" style={{ flexShrink: 0 }} />
+              <span>
+                <strong>Diversity Guarantee:</strong> Questions will be evenly distributed across all distinct problem archetypes and cases present in the document so no single case repeats excessively.
+              </span>
             </div>
-          )}
 
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {extractedQuestions.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="btn-secondary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <span>View Generated Questions ({extractedQuestions.length})</span>
-                <ArrowRight size={16} />
-              </button>
-            ) : <div />}
-
-            <button
-              onClick={handleProcessQuestions}
-              disabled={(inputMode === 'pdf' ? !pdfFile : !pastedText.trim()) || processing}
-              className="btn-primary"
-              style={{
-                padding: '14px 32px',
-                fontSize: '1rem',
-                background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+            {/* Progress Banner */}
+            {processing && (
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                borderRadius: '10px',
+                padding: '1.25rem',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              {processing ? (
-                <span>Synthesizing Questions...</span>
+                gap: '14px',
+                marginBottom: '1.75rem',
+              }}>
+                <div className="animate-spin" style={{
+                  width: '24px',
+                  height: '24px',
+                  border: '3px solid rgba(99, 102, 241, 0.3)',
+                  borderTopColor: '#6366f1',
+                  borderRadius: '50%',
+                }} />
+                <div>
+                  <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.95rem' }}>
+                    Gemini AI Processing...
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#a5b4fc', marginTop: '2px' }}>
+                    {progressMsg}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Primary Action Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              {extractedQuestions.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <span>Review Generated Questions ({extractedQuestions.length})</span>
+                  <ArrowRight size={16} />
+                </button>
               ) : (
-                <>
-                  <Sparkles size={18} />
-                  <span>Start AI Question Synthesis</span>
-                </>
+                <div />
               )}
-            </button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={handleGenerateQuestions}
+                  disabled={(inputMode === 'pdf' ? !pdfFile : !pastedText.trim()) || processing}
+                  className="btn-primary"
+                  style={{
+                    padding: '14px 32px',
+                    fontSize: '1rem',
+                    background: difficulty === 'hard'
+                      ? 'linear-gradient(135deg, #e11d48 0%, #7c3aed 100%)'
+                      : difficulty === 'easy'
+                      ? 'linear-gradient(135deg, #059669 0%, #6366f1 100%)'
+                      : 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 16px rgba(99, 102, 241, 0.35)',
+                  }}
+                >
+                  {isGenerating ? (
+                    <span>Synthesizing Diverse Questions...</span>
+                  ) : (
+                    <>
+                      <Sparkles size={18} />
+                      <span>
+                        Generate {customCountInput ? customCountInput : questionCount} Diverse {difficulty.toUpperCase()} Questions
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
           </div>
 
         </div>
@@ -812,12 +1334,29 @@ export const AdminAiPdfImport = () => {
                 <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
                   Topic: <strong>{topic}</strong>
                 </span>
+                {webSearchInsights && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: '#f43f5e',
+                    background: 'rgba(244, 63, 94, 0.15)',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(244, 63, 94, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}>
+                    <Globe size={12} />
+                    <span>GMAT Web Grounded</span>
+                  </span>
+                )}
               </div>
               <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f8fafc' }}>
                 Synthesized Questions ({extractedQuestions.length})
               </h2>
               <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-                All questions have been uniquely modified and solved. Review below before proceeding to schedule.
+                All questions have been uniquely transformed according to {difficulty.toUpperCase()} rules with full solutions. Review before proceeding to schedule.
               </p>
             </div>
 
@@ -828,7 +1367,7 @@ export const AdminAiPdfImport = () => {
                 style={{ padding: '10px 18px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 <ArrowLeft size={16} />
-                <span>Back to Upload / Input</span>
+                <span>Back to Document & Settings</span>
               </button>
 
               <button
@@ -849,27 +1388,124 @@ export const AdminAiPdfImport = () => {
             </div>
           </div>
 
-          {/* Question Cards */}
+          {/* Web Search Insights Callout for Hard Difficulty */}
+          {webSearchInsights && showSearchInsights && (
+            <div style={{
+              background: 'rgba(244, 63, 94, 0.08)',
+              border: '1px solid rgba(244, 63, 94, 0.25)',
+              borderRadius: '12px',
+              padding: '1.25rem',
+              marginBottom: '1.75rem',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fda4af', fontWeight: 700, fontSize: '0.9rem' }}>
+                  <Globe size={16} color="#f43f5e" />
+                  <span>Researched GMAT Club & Competitive Exam Modification Insights</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSearchInsights(false)}
+                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer' }}
+                >
+                  Dismiss
+                </button>
+              </div>
+              <p style={{ color: '#cbd5e1', fontSize: '0.82rem', marginBottom: '8px', lineHeight: 1.5 }}>
+                Questions in this assessment incorporate authentic GMAT Data Sufficiency formats, deceptive trap distractors, and multi-tier algebraic constraint modeling researched from competitive exam archives.
+              </p>
+              {webSearchInsights.sampleSnippets && webSearchInsights.sampleSnippets.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {webSearchInsights.sampleSnippets.map((snip, sIdx) => (
+                    <div key={sIdx} style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                      • "{snip}"
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Question Cards List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {extractedQuestions.map((q, idx) => (
-              <div key={idx} className="glass-card" style={{ padding: '1.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <span style={{ fontWeight: 800, color: '#818cf8', fontSize: '1rem' }}>
-                    Question {idx + 1} of {extractedQuestions.length}
-                  </span>
-                  <span style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: '#34d399',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    padding: '3px 8px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                  }}>
-                    Correct Option: {q.correctOption}
-                  </span>
+              <div key={idx} className="glass-card" style={{ padding: '1.5rem', position: 'relative' }}>
+                
+                {/* Header row: Question index, Case Badge, Modification Tag, Correct Option */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 800, color: '#818cf8', fontSize: '1.05rem' }}>
+                      Question {idx + 1} of {extractedQuestions.length}
+                    </span>
+
+                    {q.caseType && (
+                      <span style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        background: 'rgba(99, 102, 241, 0.15)',
+                        color: '#a5b4fc',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                      }}>
+                        {q.caseType}
+                      </span>
+                    )}
+
+                    {q.modificationApplied && (
+                      <span style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        background: difficulty === 'hard'
+                          ? 'rgba(244, 63, 94, 0.15)'
+                          : difficulty === 'easy'
+                          ? 'rgba(16, 185, 129, 0.15)'
+                          : 'rgba(245, 158, 11, 0.15)',
+                        color: difficulty === 'hard'
+                          ? '#fda4af'
+                          : difficulty === 'easy'
+                          ? '#34d399'
+                          : '#fcd34d',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                      }}>
+                        {q.modificationApplied}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      color: '#34d399',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                    }}>
+                      Correct: Option {q.correctOption}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteQuestion(idx)}
+                      title="Remove question"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#f43f5e',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
 
+                {/* Question Statement */}
                 <div style={{ fontSize: '1rem', color: '#f8fafc', marginBottom: '1.25rem', lineHeight: 1.6 }}>
                   <MathRenderer text={q.questionText} />
                 </div>
@@ -885,7 +1521,7 @@ export const AdminAiPdfImport = () => {
                           padding: '8px 12px',
                           borderRadius: '8px',
                           background: isCorrect ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.03)',
-                          border: isCorrect ? '1px solid #10b981' : '1px solid var(--border-subtle)',
+                          border: isCorrect ? '1.5px solid #10b981' : '1px solid var(--border-subtle)',
                           color: isCorrect ? '#34d399' : '#cbd5e1',
                           fontSize: '0.85rem',
                         }}
@@ -910,6 +1546,7 @@ export const AdminAiPdfImport = () => {
                     <MathRenderer text={q.explanation} />
                   </div>
                 )}
+
               </div>
             ))}
           </div>
@@ -922,7 +1559,7 @@ export const AdminAiPdfImport = () => {
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <ArrowLeft size={16} />
-              <span>Back to Upload / Input</span>
+              <span>Back to Document & Settings</span>
             </button>
 
             <button

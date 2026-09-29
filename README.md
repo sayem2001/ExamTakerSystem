@@ -104,14 +104,14 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
-## 🔑 Default Credentials
+## 🔑 Evaluation & Testing Credentials
 
-| Role | Email | Password |
-|---|---|---|
-| **Administrator** | `sayemmd035@gmail.com` | `SayemExam11011` |
-| **Student** | `student@examtaker.com` | `StudentPassword123!` |
+| Role | Email | Password | Access Level |
+|---|---|---|---|
+| **Demo Candidate (Student)** | `student@examtaker.com` | `StudentPassword123!` | Public evaluation demo for taking exams |
+| **Administrator** | *(Protected Primary Admin)* | *(Configured in `.env`)* | Requires verified credentials or OTP authorization |
 
-*(Both accounts are pre-seeded in the database, with 1-click quick login buttons on the Login page).*
+*(Enter the email and password in the sign-in form to authenticate. Demo credentials above can be entered directly into the login form).*
 
 ---
 

@@ -22,11 +22,22 @@ export const api = {
     return data;
   },
 
-  async register(name, email, password, role = 'student', institution = '') {
+  async requestAdminOtp(name, email) {
+    const res = await fetch(`${BASE_URL}/api/auth/request-admin-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to request admin authorization OTP');
+    return data;
+  },
+
+  async register(name, email, password, role = 'student', institution = '', adminOtp = '') {
     const res = await fetch(`${BASE_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, role, institution }),
+      body: JSON.stringify({ name, email, password, role, institution, adminOtp }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Registration failed');
@@ -161,6 +172,29 @@ export const api = {
   },
 
   // AI & PDF
+  async extractQuestionsFromDoc(formData) {
+    const token = localStorage.getItem('apex_token');
+    const res = await fetch(`${BASE_URL}/api/ai/extract-questions`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Question extraction failed');
+    return data;
+  },
+
+  async generateFromExtractedQuestions(payload) {
+    const res = await fetch(`${BASE_URL}/api/ai/generate-from-extracted`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Question generation failed');
+    return data;
+  },
+
   async uploadAndProcessPdf(formData) {
     const token = localStorage.getItem('apex_token');
     const res = await fetch(`${BASE_URL}/api/ai/process-pdf`, {

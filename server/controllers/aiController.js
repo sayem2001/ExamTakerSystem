@@ -1,11 +1,158 @@
 const fs = require('fs');
 const path = require('path');
-const { extractTextFromPDF, generateMCQsWithGemini } = require('../services/geminiService');
+const {
+  extractTextFromPDF,
+  extractAllQuestionsFromDocument,
+  generateMCQsFromExtracted,
+  generateMCQsWithGemini,
+} = require('../services/geminiService');
 const Question = require('../models/Question');
 const Exam = require('../models/Exam');
 const Topic = require('../models/Topic');
 
-// @desc    Process uploaded PDF or directly pasted text with Gemini API to extract MCQs
+// @desc    Phase 1: Read entire document, filter theory/notes, and extract ALL questions present
+// @route   POST /api/ai/extract-questions
+// @access  Private (Admin only)
+exports.extractQuestions = async (req, res) => {
+  try {
+    const { topic = '', pastedText = '' } = req.body;
+
+    let text = '';
+    let numPages = 1;
+    let originalName = 'Pasted Text';
+    let filename = `pasted-text-${Date.now()}`;
+    let isDirectPaste = false;
+
+    if (req.file) {
+      const filePath = req.file.path;
+      originalName = req.file.originalname;
+      filename = req.file.filename;
+      console.log(`[AI Controller] Extracting questions from PDF: ${originalName} (${req.file.size} bytes)`);
+
+      const pdfData = await extractTextFromPDF(filePath);
+      text = pdfData.text;
+      numPages = pdfData.numPages || 1;
+    } else {
+      const rawText = pastedText || req.body.text || '';
+      if (rawText && rawText.trim().length > 0) {
+        text = rawText.trim();
+        isDirectPaste = true;
+        originalName = 'Directly Pasted Text';
+        console.log(`[AI Controller] Extracting questions from direct pasted text (${text.length} chars)`);
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Please upload a PDF document or paste question text directly.',
+        });
+      }
+    }
+
+    if (!req.file && (!text || text.trim().length === 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a PDF document or paste question text directly.',
+      });
+    }
+
+    // Call Phase 1 extraction service
+    const extractResult = await extractAllQuestionsFromDocument({
+      pdfPath: req.file ? req.file.path : null,
+      pdfText: text,
+      targetTopic: topic,
+    });
+
+    const extractedQuestions = extractResult.questions || [];
+
+    if (extractedQuestions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Could not detect any examination questions in the provided document. Ensure the document contains exercises or math problems.',
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully extracted ${extractedQuestions.length} questions from ${isDirectPaste ? 'pasted text' : 'PDF document'}.`,
+      meta: {
+        originalName,
+        filename,
+        numPages,
+        detectedTopic: extractResult.detectedTopic || topic || 'General Mathematics',
+        distinctCases: extractResult.distinctCases || [],
+        totalQuestionsFound: extractResult.totalExtracted,
+        theoryFiltered: extractResult.theoryFiltered,
+        modelUsed: extractResult.modelUsed || 'gemini',
+        isDirectPaste,
+      },
+      extractedQuestions,
+    });
+  } catch (error) {
+    console.error('extractQuestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error extracting questions from document',
+    });
+  }
+};
+
+// @desc    Phase 2: Generate configured number of diverse questions based on difficulty (Easy, Medium, Hard GMAT)
+// @route   POST /api/ai/generate-from-extracted
+// @access  Private (Admin only)
+exports.generateFromExtracted = async (req, res) => {
+  try {
+    const {
+      extractedQuestions = [],
+      topic = 'General Mathematics',
+      difficulty = 'medium',
+      questionCount = 30,
+      pdfDocument = null,
+    } = req.body;
+
+    if (!extractedQuestions || !Array.isArray(extractedQuestions) || extractedQuestions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No source questions provided to synthesize questions from.',
+      });
+    }
+
+    const targetCount = parseInt(questionCount, 10) || 30;
+
+    console.log(
+      `[AI Controller] Synthesizing ${targetCount} ${difficulty.toUpperCase()} questions for "${topic}" from ${extractedQuestions.length} source questions...`
+    );
+
+    const genResult = await generateMCQsFromExtracted({
+      extractedQuestions,
+      targetTopic: topic,
+      targetDifficulty: difficulty,
+      questionCount: targetCount,
+    });
+
+    const questions = genResult.questions || [];
+
+    res.json({
+      success: true,
+      message: `Successfully generated ${questions.length} ${difficulty.toUpperCase()} questions with diverse case coverage.`,
+      meta: {
+        detectedTopic: genResult.detectedTopic || topic,
+        modelUsed: genResult.modelUsed || 'gemini',
+        distinctCasesCovered: genResult.distinctCasesCovered || [],
+        searchGrounded: genResult.searchGrounded,
+        webSearchInsights: genResult.webSearchInsights || null,
+        pdfDocument,
+      },
+      questions,
+    });
+  } catch (error) {
+    console.error('generateFromExtracted error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error generating questions from extracted source questions',
+    });
+  }
+};
+
+// @desc    Direct end-to-end Process PDF / Pasted Text (Legacy/Direct pipeline)
 // @route   POST /api/ai/process-pdf
 // @access  Private (Admin only)
 exports.processPdf = async (req, res) => {
@@ -27,7 +174,7 @@ exports.processPdf = async (req, res) => {
       const filePath = req.file.path;
       originalName = req.file.originalname;
       filename = req.file.filename;
-      console.log(`Processing PDF: ${originalName} (${req.file.size} bytes)`);
+      console.log(`Processing PDF (full pipeline): ${originalName} (${req.file.size} bytes)`);
 
       const pdfData = await extractTextFromPDF(filePath);
       text = pdfData.text;
@@ -38,7 +185,7 @@ exports.processPdf = async (req, res) => {
         text = rawText.trim();
         isDirectPaste = true;
         originalName = 'Directly Pasted Text';
-        console.log(`Processing direct pasted text (${text.length} characters)`);
+        console.log(`Processing direct pasted text (full pipeline, ${text.length} chars)`);
       } else {
         return res.status(400).json({
           success: false,
@@ -47,14 +194,14 @@ exports.processPdf = async (req, res) => {
       }
     }
 
-    if (!text || text.trim().length === 0) {
+    if (!req.file && (!text || text.trim().length === 0)) {
       return res.status(400).json({
         success: false,
-        message: 'Could not find readable text. Ensure the PDF contains readable text (or paste text directly).',
+        message: 'Please upload a PDF document or paste question text directly.',
       });
     }
 
-    // Call Gemini service
+    // Call full 2-stage Gemini service
     const targetCount = parseInt(questionCount, 10) || 30;
     const aiResult = await generateMCQsWithGemini({
       pdfPath: req.file ? req.file.path : null,
@@ -64,22 +211,12 @@ exports.processPdf = async (req, res) => {
       questionCount: targetCount,
     });
 
-    let questions = aiResult.questions || [];
-    let isFallback = false;
-
-    if (!questions || questions.length === 0) {
-      if (aiResult.fallback) {
-        questions = Array.isArray(aiResult.fallback)
-          ? aiResult.fallback
-          : (aiResult.fallback.questions || []);
-        if (questions.length > 0) isFallback = true;
-      }
-    }
+    const questions = aiResult.questions || [];
 
     if (!questions || questions.length === 0) {
       return res.status(400).json({
         success: false,
-        message: aiResult.error || 'Could not synthesize questions from the provided input.',
+        message: 'Could not extract questions from the provided document. Please ensure the document contains mathematical questions.',
       });
     }
 
@@ -87,16 +224,21 @@ exports.processPdf = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully synthesized ${questions.length} questions from ${isDirectPaste ? 'pasted text' : 'PDF'}${isFallback ? ' (using verified standard bank)' : ''}`,
+      message: `Successfully synthesized ${questions.length} questions from ${isDirectPaste ? 'pasted text' : 'PDF document'} using ${aiResult.modelUsed || 'Gemini'}`,
       meta: {
         originalName,
         filename,
         numPages,
         detectedTopic,
-        modelUsed: aiResult.modelUsed || (isFallback ? 'fallback-standard-bank' : 'gemini'),
-        isFallback,
+        modelUsed: aiResult.modelUsed || 'gemini',
+        isFallback: false,
         isDirectPaste,
+        distinctCases: aiResult.distinctCases || [],
+        totalSourceQuestions: aiResult.extractedSourceQuestions?.length || 0,
+        searchGrounded: aiResult.searchGrounded,
+        webSearchInsights: aiResult.webSearchInsights || null,
       },
+      extractedSourceQuestions: aiResult.extractedSourceQuestions || [],
       questions,
     });
   } catch (error) {
@@ -140,14 +282,12 @@ exports.autoCreateThreeExams = async (req, res) => {
     const mediumQs = [];
     const hardQs = [];
 
-    // Distribute if some don't have explicit difficulty
     questions.forEach((q, idx) => {
       const diff = (q.difficulty || '').toLowerCase();
       if (diff === 'easy') easyQs.push(q);
       else if (diff === 'hard') hardQs.push(q);
       else if (diff === 'medium') mediumQs.push(q);
       else {
-        // distribute evenly
         if (idx % 3 === 0) easyQs.push(q);
         else if (idx % 3 === 1) mediumQs.push(q);
         else hardQs.push(q);
@@ -256,7 +396,6 @@ exports.scheduleGeneratedExam = async (req, res) => {
       });
     }
 
-    // Ensure topic exists in Topic collection
     let existingTopic = await Topic.findOne({ name: new RegExp(`^${topic}$`, 'i') });
     if (!existingTopic) {
       existingTopic = await Topic.create({
@@ -320,4 +459,3 @@ exports.scheduleGeneratedExam = async (req, res) => {
     res.status(500).json({ success: false, message: error.message || 'Error scheduling exam' });
   }
 };
-

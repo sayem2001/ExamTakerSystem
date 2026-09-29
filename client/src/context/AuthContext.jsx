@@ -38,8 +38,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (name, email, password, role = 'student', institution = '') => {
-    const res = await api.register(name, email, password, role, institution);
+  const register = async (name, email, password, role = 'student', institution = '', adminOtp = '') => {
+    const res = await api.register(name, email, password, role, institution, adminOtp);
     if (res.success && res.token) {
       localStorage.setItem('apex_token', res.token);
       setToken(res.token);

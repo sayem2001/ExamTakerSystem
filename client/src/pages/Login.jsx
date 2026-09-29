@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { BrainCircuit, LogIn, Shield, User, AlertCircle } from 'lucide-react';
+import { BrainCircuit, LogIn, AlertCircle } from 'lucide-react';
 
 export const Login = () => {
   const [email, setEmail] = useState('');
@@ -22,7 +22,7 @@ export const Login = () => {
     setLoading(true);
 
     try {
-      const loggedInUser = await login(email, password);
+      const loggedInUser = await login(email.trim(), password);
       if (loggedInUser.role === 'admin' && from === '/dashboard') {
         navigate('/admin');
       } else {
@@ -33,11 +33,6 @@ export const Login = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickDemo = (demoEmail, demoPass) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
   };
 
   return (
@@ -114,35 +109,40 @@ export const Login = () => {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
+            <label htmlFor="login-email" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
               Email Address
             </label>
             <input
+              id="login-email"
               type="email"
               className="form-input"
-              placeholder="e.g. sayem@examtaker.com"
+              placeholder="e.g. your-email@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
             />
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
+            <label htmlFor="login-password" style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
               Password
             </label>
             <input
+              id="login-password"
               type="password"
               className="form-input"
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
               required
             />
           </div>
 
           <button
             type="submit"
+            id="login-submit-btn"
             className="btn-primary"
             disabled={loading}
             style={{ width: '100%', marginTop: '0.5rem', padding: '12px' }}
@@ -157,33 +157,6 @@ export const Login = () => {
             )}
           </button>
         </form>
-
-        {/* Demo Quick Fills */}
-        <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', textAlign: 'center' }}>
-            Quick Demo Logins
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('sayemmd035@gmail.com', 'SayemExam11011')}
-              className="btn-secondary"
-              style={{ padding: '6px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Shield size={14} color="#f43f5e" />
-              <span>Admin Demo</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('student@examtaker.com', 'StudentPassword123!')}
-              className="btn-secondary"
-              style={{ padding: '6px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <User size={14} color="#6366f1" />
-              <span>Student Demo</span>
-            </button>
-          </div>
-        </div>
 
         <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.85rem', color: '#94a3b8' }}>
           Don't have an account?{' '}
