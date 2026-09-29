@@ -106,28 +106,41 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
       }
     }
 
-    // 2. Fix corrupted control codes & multiple slashes
+    // 2. Unescape literal newlines and control characters
     s = s
-      .replace(/\\{3,}/g, '\\\\')
-      .replace(/\r(?=ightarrow)/g, '\\')
-      .replace(/\t(?=imes|ext)/g, '\\')
-      .replace(/\f(?=rac)/g, '\\')
-      .replace(/\u000c(?=rac)/g, '\\')
-      .replace(/\\?(\f|\\f|\u000c)rac/g, '\\frac')
-      .replace(/\\?(\r|\\r)ightarrow/g, '\\rightarrow')
-      .replace(/\\?(\t|\\t)imes/g, '\\times')
-      .replace(/\\?(\t|\\t)ext/g, '\\text')
-      .replace(/\\?(?:ext|\\ext)\b/g, '\\text')
-      .replace(/\\?(?:imes|\\imes)\b/g, '\\times')
-      .replace(/\\?(?:rac|\\rac)\b/g, '\\frac')
-      .replace(/\\?(?:ightarrow|\\ightarrow)\b/g, '\\rightarrow')
-      .replace(/\\(\$)/g, '$')
-      .replace(/\\\\%/g, '%')
-      .replace(/\\%/g, '%')
-      // Fix double-typed numbers and percentages (e.g. 40%40% -> 40%, 1.51.5 -> 1.5, 250250 -> 250)
-      .replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n');
 
-    // 3. Fix letter-spacing caused by ASCII control characters
+    // 3. Collapse rogue \f or \t sequences before standard macros
+    s = s.replace(/(?:\\[fF]|\u000c|\f)+(\s*\\?frac\b)/gi, '\\frac');
+    s = s.replace(/(?:\\[tT]|\t)+(\s*\\?times\b)/gi, ' \\times ');
+    s = s.replace(/(?:\\[tT]|\t)+(\s*\\?text\b)/gi, '\\text');
+    s = s.replace(/(?:\\[rR]|\r)+(\s*\\?rightarrow\b)/gi, '\\rightarrow');
+    s = s.replace(/(?:\\[tT]|\t)+(Total\s+unrestricted|Restricted\s*\(together\))/gi, '\\text{$1}');
+
+    // 4. Remove isolated rogue backslashes before letters that are not valid macros
+    s = s.replace(/\\[fF](?![a-zA-Z])/g, '');
+    s = s.replace(/\\[tT](?![a-zA-Z])/g, '');
+    s = s.replace(/\\[rR](?![a-zA-Z])/g, '');
+
+    // 5. Fix missing leading characters on common macros
+    s = s
+      .replace(/\\rac(?=[{\s\d])/g, '\\frac')
+      .replace(/\\ext(?=[{\s])/g, '\\text')
+      .replace(/\\imes(?=[{\s\d])/g, '\\times')
+      .replace(/\\ightarrow\b/g, '\\rightarrow');
+
+    // 6. Fix double-typed numbers and percentages (e.g. 40%40% -> 40%, 1.51.5 -> 1.5)
+    s = s.replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
+
+    // 7. Clean backslashes before $
+    s = s.replace(/\\(\$)/g, '$');
+    s = s.replace(/\\\\%/g, '%');
+    s = s.replace(/\\%/g, '%');
+    s = s.replace(/[\f\u000c]/g, '');
+
+    // 8. Fix letter-spacing caused by ASCII control characters
     s = s.replace(/([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])(?:\s+([a-zA-Z]))*/g, (match) => {
       const condensed = match.replace(/\s+/g, '');
       if (condensed.length >= 4 && !/^[A-Z]+$/.test(condensed) && !/\b[A-E]\b/.test(match)) {

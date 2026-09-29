@@ -688,7 +688,7 @@ export const StudentPracticeAi = () => {
                   <ExplanationRenderer
                     explanation={q.explanation}
                     correctOption={q.correctOption}
-                    defaultExpanded={true}
+                    defaultExpanded={false}
                   />
                 )}
               </div>
