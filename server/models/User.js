@@ -35,6 +35,11 @@ const userSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    geminiApiKey: {
+      type: String,
+      default: '',
+      select: false, // Never returned in normal queries — must be explicitly selected
+    },
   },
   { timestamps: true }
 );

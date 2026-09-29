@@ -33,13 +33,39 @@ exports.startAttempt = async (req, res) => {
     let attempt = await ExamAttempt.findOne({ user: userId, exam: examId });
 
     if (attempt) {
-      // STRICT POLICY: If already submitted, prevent retake!
+      // STRICT POLICY: If already submitted, prevent retake on official exams!
       if (attempt.status === 'submitted' || attempt.status === 'auto-submitted') {
-        return res.status(403).json({
-          success: false,
-          hasCompleted: true,
-          message: 'You have already attempted this exam. Retakes are not permitted.',
-          attemptId: attempt._id,
+        if (!exam.isPractice) {
+          return res.status(403).json({
+            success: false,
+            hasCompleted: true,
+            message: 'You have already attempted this exam. Retakes are not permitted.',
+            attemptId: attempt._id,
+          });
+        }
+
+        // For student practice exams, allow unlimited retakes by resetting attempt
+        attempt.status = 'in-progress';
+        attempt.startedAt = new Date();
+        attempt.submittedAt = undefined;
+        attempt.durationSeconds = 0;
+        attempt.score = 0;
+        attempt.maxScore = exam.questions.length;
+        attempt.percentage = 0;
+        attempt.passed = false;
+        attempt.proctorViolations = [];
+        attempt.answers = exam.questions.map((q) => ({
+          questionId: q._id,
+          selectedOption: '',
+          markedForReview: false,
+        }));
+        await attempt.save();
+
+        return res.json({
+          success: true,
+          message: 'Starting fresh practice attempt',
+          attempt,
+          exam,
         });
       }
 
@@ -361,3 +387,176 @@ exports.getAttemptResults = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Get current student's aggregated performance statistics
+// @route   GET /api/attempts/my-performance
+// @access  Private (Protected)
+exports.getMyPerformance = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Fetch all completed attempts by this user
+    const attempts = await ExamAttempt.find({
+      user: userId,
+      status: { $in: ['submitted', 'auto-submitted'] },
+    })
+      .populate('exam', 'title topic difficulty examCode passPercentage isPractice durationMinutes')
+      .sort({ submittedAt: -1, createdAt: -1 });
+
+    const totalAttempts = attempts.length;
+
+    if (totalAttempts === 0) {
+      return res.json({
+        success: true,
+        summary: {
+          totalAttempts: 0,
+          passedAttempts: 0,
+          passRate: 0,
+          averagePercentage: 0,
+          highestPercentage: 0,
+          totalQuestionsAnswered: 0,
+          totalCorrectAnswers: 0,
+          overallAccuracy: 0,
+          officialAttemptsCount: 0,
+          practiceAttemptsCount: 0,
+        },
+        topicBreakdown: [],
+        difficultyBreakdown: {
+          easy: { attempts: 0, avgPercentage: 0, accuracy: 0 },
+          medium: { attempts: 0, avgPercentage: 0, accuracy: 0 },
+          hard: { attempts: 0, avgPercentage: 0, accuracy: 0 },
+        },
+        recentAttempts: [],
+      });
+    }
+
+    let totalScore = 0;
+    let totalMaxScore = 0;
+    let totalPercentage = 0;
+    let highestPercentage = 0;
+    let passedCount = 0;
+    let totalAttemptedQuestions = 0;
+    let totalCorrectAnswers = 0;
+    let officialCount = 0;
+    let practiceCount = 0;
+
+    const topicMap = {};
+    const difficultyMap = {
+      easy: { totalAttempts: 0, totalPercentage: 0, correct: 0, attempted: 0 },
+      medium: { totalAttempts: 0, totalPercentage: 0, correct: 0, attempted: 0 },
+      hard: { totalAttempts: 0, totalPercentage: 0, correct: 0, attempted: 0 },
+    };
+
+    attempts.forEach((att) => {
+      const exam = att.exam || {};
+      const topic = exam.topic || 'General';
+      const difficulty = (exam.difficulty || 'medium').toLowerCase();
+      const isPractice = !!exam.isPractice;
+
+      if (isPractice) practiceCount++;
+      else officialCount++;
+
+      const pct = att.percentage || 0;
+      totalPercentage += pct;
+      if (pct > highestPercentage) highestPercentage = pct;
+      if (att.passed) passedCount++;
+
+      totalScore += att.score || 0;
+      totalMaxScore += att.maxScore || 0;
+      totalAttemptedQuestions += att.attemptedCount || 0;
+      totalCorrectAnswers += att.correctCount || 0;
+
+      // Topic aggregation
+      if (!topicMap[topic]) {
+        topicMap[topic] = {
+          topic,
+          attempts: 0,
+          totalPercentage: 0,
+          correct: 0,
+          attempted: 0,
+          passed: 0,
+        };
+      }
+      topicMap[topic].attempts += 1;
+      topicMap[topic].totalPercentage += pct;
+      topicMap[topic].correct += att.correctCount || 0;
+      topicMap[topic].attempted += att.attemptedCount || 0;
+      if (att.passed) topicMap[topic].passed += 1;
+
+      // Difficulty aggregation
+      if (difficultyMap[difficulty]) {
+        difficultyMap[difficulty].totalAttempts += 1;
+        difficultyMap[difficulty].totalPercentage += pct;
+        difficultyMap[difficulty].correct += att.correctCount || 0;
+        difficultyMap[difficulty].attempted += att.attemptedCount || 0;
+      }
+    });
+
+    const averagePercentage = Math.round((totalPercentage / totalAttempts) * 10) / 10;
+    const passRate = Math.round((passedCount / totalAttempts) * 100);
+    const overallAccuracy = totalAttemptedQuestions > 0
+      ? Math.round((totalCorrectAnswers / totalAttemptedQuestions) * 100)
+      : 0;
+
+    const topicBreakdown = Object.values(topicMap).map((t) => ({
+      topic: t.topic,
+      attempts: t.attempts,
+      avgPercentage: Math.round((t.totalPercentage / t.attempts) * 10) / 10,
+      accuracy: t.attempted > 0 ? Math.round((t.correct / t.attempted) * 100) : 0,
+      passRate: Math.round((t.passed / t.attempts) * 100),
+    })).sort((a, b) => b.attempts - a.attempts);
+
+    const difficultyBreakdown = {};
+    ['easy', 'medium', 'hard'].forEach((diff) => {
+      const data = difficultyMap[diff];
+      difficultyBreakdown[diff] = {
+        attempts: data.totalAttempts,
+        avgPercentage: data.totalAttempts > 0 ? Math.round((data.totalPercentage / data.totalAttempts) * 10) / 10 : 0,
+        accuracy: data.attempted > 0 ? Math.round((data.correct / data.attempted) * 100) : 0,
+      };
+    });
+
+    const recentAttempts = attempts.map((att) => ({
+      attemptId: att._id,
+      examId: att.exam?._id,
+      examTitle: att.exam?.title || 'Assessment',
+      topic: att.exam?.topic || 'General',
+      difficulty: att.exam?.difficulty || 'medium',
+      examCode: att.exam?.examCode || '',
+      isPractice: !!att.exam?.isPractice,
+      score: att.score,
+      maxScore: att.maxScore,
+      percentage: att.percentage,
+      passed: att.passed,
+      attemptedCount: att.attemptedCount,
+      correctCount: att.correctCount,
+      wrongCount: att.wrongCount,
+      unansweredCount: att.unansweredCount,
+      submittedAt: att.submittedAt || att.updatedAt,
+      durationSeconds: att.durationSeconds,
+    }));
+
+    res.json({
+      success: true,
+      summary: {
+        totalAttempts,
+        passedAttempts: passedCount,
+        passRate,
+        averagePercentage,
+        highestPercentage,
+        totalQuestionsAnswered: totalAttemptedQuestions,
+        totalCorrectAnswers,
+        overallAccuracy,
+        officialAttemptsCount: officialCount,
+        practiceAttemptsCount: practiceCount,
+      },
+      topicBreakdown,
+      difficultyBreakdown,
+      recentAttempts,
+    });
+  } catch (error) {
+    console.error('getMyPerformance error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+

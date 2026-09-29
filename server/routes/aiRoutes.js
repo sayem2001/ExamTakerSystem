@@ -10,7 +10,17 @@ const {
   scheduleGeneratedExam,
   getVerifiedQuestions,
   deployVerifiedExam,
+  studentGeneratePractice,
+  studentExtractQuestions,
+  studentGenerateQuestions,
+  studentSavePractice,
 } = require('../controllers/aiController');
+
+// Student isolated AI practice generator routes (accessible to authenticated students & admins)
+router.post('/student-generate-practice', protect, upload.single('pdf'), studentGeneratePractice);
+router.post('/student-extract', protect, upload.single('pdf'), studentExtractQuestions);
+router.post('/student-generate', protect, studentGenerateQuestions);
+router.post('/student-save-practice', protect, studentSavePractice);
 
 // Phase 1: Read entire document, filter theoretical text/notes, and extract all questions
 router.post('/extract-questions', protect, adminOnly, upload.single('pdf'), extractQuestions);

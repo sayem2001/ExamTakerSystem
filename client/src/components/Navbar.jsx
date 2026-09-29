@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { Award, BookOpen, ShieldCheck, LogOut, LogIn, BrainCircuit, Sun, Moon } from 'lucide-react';
+import { Award, BookOpen, ShieldCheck, LogOut, LogIn, BrainCircuit, Sun, Moon, Sparkles, Settings } from 'lucide-react';
 
 export const Navbar = () => {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
@@ -68,6 +68,26 @@ export const Navbar = () => {
           </Link>
 
           <Link
+            to="/practice/ai"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: isActive('/practice/ai') ? '#818cf8' : 'var(--text-muted)',
+              textDecoration: 'none',
+              fontSize: '0.9rem',
+              fontWeight: 500,
+              padding: '6px 12px',
+              borderRadius: '8px',
+              background: isActive('/practice/ai') ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+              transition: 'all 0.2s',
+            }}
+          >
+            <Sparkles size={16} />
+            <span>AI Practice</span>
+          </Link>
+
+          <Link
             to="/leaderboard"
             style={{
               display: 'flex',
@@ -86,6 +106,28 @@ export const Navbar = () => {
             <Award size={16} />
             <span>Leaderboard</span>
           </Link>
+
+          {isAuthenticated && (
+            <Link
+              to="/settings"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: isActive('/settings') ? '#818cf8' : 'var(--text-muted)',
+                textDecoration: 'none',
+                fontSize: '0.9rem',
+                fontWeight: 500,
+                padding: '6px 12px',
+                borderRadius: '8px',
+                background: isActive('/settings') ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                transition: 'all 0.2s',
+              }}
+            >
+              <Settings size={16} />
+              <span>Settings</span>
+            </Link>
+          )}
 
           {isAdmin && (
             <Link
@@ -139,15 +181,22 @@ export const Navbar = () => {
 
           {isAuthenticated ? (
             <>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '5px 12px',
-                background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
-                borderRadius: '9999px',
-                border: '1px solid var(--border-subtle)',
-              }}>
+              <Link
+                to="/settings"
+                title="View Account & AI Settings"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '5px 12px',
+                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                  borderRadius: '9999px',
+                  border: isActive('/settings') ? '1px solid #818cf8' : '1px solid var(--border-subtle)',
+                  textDecoration: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
                 <div style={{
                   width: '26px',
                   height: '26px',
@@ -176,7 +225,7 @@ export const Navbar = () => {
                 }}>
                   {user.role}
                 </span>
-              </div>
+              </Link>
 
               <button
                 onClick={handleLogout}

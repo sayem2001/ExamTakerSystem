@@ -1,0 +1,721 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { api } from '../services/api';
+import MathRenderer from '../components/MathRenderer';
+import {
+  Upload,
+  FileText,
+  Sparkles,
+  Zap,
+  CheckCircle,
+  AlertCircle,
+  ArrowRight,
+  BookOpen,
+  Sliders,
+  Play,
+  RotateCcw,
+  Layers,
+  Lock,
+  Key,
+} from 'lucide-react';
+
+export const StudentPracticeAi = () => {
+  const navigate = useNavigate();
+
+  // Mode: 'pdf' or 'paste'
+  const [inputMode, setInputMode] = useState('pdf');
+  const [file, setFile] = useState(null);
+  const [pastedText, setPastedText] = useState('');
+  const [topic, setTopic] = useState('Profit and Loss');
+  const [difficulty, setDifficulty] = useState('medium');
+  const [questionCount, setQuestionCount] = useState(10);
+  const [title, setTitle] = useState('');
+
+  // Generation state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [generatedExam, setGeneratedExam] = useState(null);
+  const [generatedQuestions, setGeneratedQuestions] = useState([]);
+
+  // Gemini API key state
+  const [hasPersonalKey, setHasPersonalKey] = useState(false);
+  const [maskedKey, setMaskedKey] = useState('');
+
+  useEffect(() => {
+    fetchKeyStatus();
+  }, []);
+
+  const fetchKeyStatus = async () => {
+    try {
+      const res = await api.getStudentGeminiKeyStatus();
+      if (res.success) {
+        setHasPersonalKey(res.hasKey);
+        setMaskedKey(res.maskedKey || '');
+      }
+    } catch (e) {
+      // Non-fatal
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const selected = e.target.files[0];
+    if (selected) {
+      if (selected.type !== 'application/pdf') {
+        setError('Please select a valid PDF file.');
+        return;
+      }
+      setFile(selected);
+      setError('');
+      if (!title) {
+        const cleanName = selected.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+        setTitle(`${cleanName} - Practice Set`);
+      }
+    }
+  };
+
+  const handleGenerate = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (inputMode === 'pdf' && !file) {
+      setError('Please choose a PDF document containing your math problems or notes.');
+      return;
+    }
+    if (inputMode === 'paste' && (!pastedText || pastedText.trim().length < 20)) {
+      setError('Please paste at least 20 characters of problem descriptions, syllabus, or exercise text.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setStatusMessage('Analyzing document and extracting problem concepts...');
+
+      let payload;
+      if (inputMode === 'pdf') {
+        const formData = new FormData();
+        formData.append('pdf', file);
+        formData.append('topic', topic);
+        formData.append('difficulty', difficulty);
+        formData.append('questionCount', questionCount);
+        formData.append('title', title || `${topic} AI Practice Test`);
+        payload = formData;
+      } else {
+        payload = {
+          pastedText: pastedText.trim(),
+          topic,
+          difficulty,
+          questionCount,
+          title: title || `${topic} AI Practice Test`,
+        };
+      }
+
+      setStatusMessage('Gemini AI is synthesizing high-caliber multiple choice questions with clean LaTeX solutions...');
+      const res = await api.studentGeneratePractice(payload);
+
+      if (res.success) {
+        setGeneratedExam(res.exam);
+        setGeneratedQuestions(res.exam.questions || []);
+        setStatusMessage('Success! Your personal practice test has been compiled.');
+      } else {
+        throw new Error(res.message || 'Generation failed');
+      }
+    } catch (err) {
+      console.error('Practice generation error:', err);
+      setError(err.message || 'Failed to synthesize questions. Please verify your document and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startExamImmediately = () => {
+    if (generatedExam) {
+      navigate(`/workspace/${generatedExam._id}`);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 1.5rem 4rem' }}>
+      
+      {/* Header Banner */}
+      <div
+        className="glass-card"
+        style={{
+          padding: '2.5rem',
+          marginBottom: '2rem',
+          background: 'linear-gradient(135deg, rgba(30, 27, 75, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%)',
+          border: '1px solid rgba(129, 140, 248, 0.3)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '1.5rem',
+        }}
+      >
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#a5b4fc', fontSize: '0.85rem', fontWeight: 600, marginBottom: '8px' }}>
+            <Sparkles size={16} />
+            <span>Isolated Student Practice Studio</span>
+          </div>
+          <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', marginBottom: '8px' }}>
+            AI Practice Test Generator
+          </h1>
+          <p style={{ color: '#cbd5e1', fontSize: '1rem', maxWidth: '680px', lineHeight: 1.6 }}>
+            Upload your lecture PDF or paste math exercises. Our system synthesizes custom, trap-aware questions with step-by-step LaTeX explanations—strictly private and isolated to your account.
+          </p>
+        </div>
+
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          padding: '16px 22px',
+          borderRadius: '14px',
+          textAlign: 'center',
+          minWidth: '180px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#10b981', marginBottom: '4px' }}>
+            <Lock size={16} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>100% Private</span>
+          </div>
+          <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Visible only to you</div>
+        </div>
+      </div>
+
+      {/* Gemini API Key Notice Banner */}
+      {hasPersonalKey ? (
+        <div style={{
+          background: 'rgba(16, 185, 129, 0.1)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          padding: '12px 18px',
+          borderRadius: '12px',
+          marginBottom: '1.75rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981', fontSize: '0.9rem', fontWeight: 600 }}>
+            <CheckCircle size={18} />
+            <span>Using your personal Gemini API key ({maskedKey}) for dedicated, zero-queue generation.</span>
+          </div>
+          <Link to="/settings" style={{ color: '#818cf8', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>Manage in Settings</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      ) : (
+        <div style={{
+          background: 'rgba(99, 102, 241, 0.08)',
+          border: '1px solid rgba(129, 140, 248, 0.25)',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          marginBottom: '1.75rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '14px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Key size={18} color="#ffffff" />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                Want unlimited, instant practice generation?
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Add your free personal Google Gemini API key to avoid shared queue rate-limits.
+              </div>
+            </div>
+          </div>
+          <Link
+            to="/settings"
+            className="btn-primary"
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <span>Configure Gemini Key</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      )}
+
+      {/* Main Workspace */}
+      {!generatedExam ? (
+        <form onSubmit={handleGenerate}>
+          <div className="glass-card" style={{ padding: '2rem', marginBottom: '2rem' }}>
+            
+            {/* Input Selection Tabs */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => setInputMode('pdf')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 20px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: inputMode === 'pdf' ? '#6366f1' : 'rgba(255, 255, 255, 0.05)',
+                  color: inputMode === 'pdf' ? '#ffffff' : 'var(--text-muted)',
+                  fontWeight: 600,
+                  fontSize: '0.95rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Upload size={18} />
+                <span>Upload PDF Document</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setInputMode('paste')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 20px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: inputMode === 'paste' ? '#6366f1' : 'rgba(255, 255, 255, 0.05)',
+                  color: inputMode === 'paste' ? '#ffffff' : 'var(--text-muted)',
+                  fontWeight: 600,
+                  fontSize: '0.95rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <FileText size={18} />
+                <span>Paste Problem Text / Notes</span>
+              </button>
+            </div>
+
+            {/* Upload Area */}
+            {inputMode === 'pdf' ? (
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Upload Source PDF (Chapter, Past Paper, or Worksheet)
+                </label>
+                <div
+                  style={{
+                    border: '2px dashed var(--border-subtle)',
+                    borderRadius: '12px',
+                    padding: '2.5rem 1.5rem',
+                    textAlign: 'center',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onClick={() => document.getElementById('student-pdf-upload').click()}
+                >
+                  <input
+                    id="student-pdf-upload"
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={handleFileChange}
+                    style={{ display: 'none' }}
+                  />
+                  <Upload size={36} color="#818cf8" style={{ margin: '0 auto 12px' }} />
+                  {file ? (
+                    <div>
+                      <div style={{ fontWeight: 700, color: '#10b981', fontSize: '1.05rem', marginBottom: '4px' }}>
+                        Selected: {file.name}
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                        {(file.size / 1024 / 1024).toFixed(2)} MB • Click to replace file
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '1rem', marginBottom: '6px' }}>
+                        Click to select PDF or drag and drop here
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                        Supports chapter PDFs, IBA / GMAT prep questions, math problem sets
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Paste Math Problems, Theory, or Curriculum Text
+                </label>
+                <textarea
+                  className="form-input"
+                  rows={8}
+                  style={{ width: '100%', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+                  placeholder="Paste problem statements, math exercises, textbook questions, or formula notes here..."
+                  value={pastedText}
+                  onChange={(e) => setPastedText(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Test Configuration Parameters */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Topic / Subject
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Profit and Loss, Arithmetic, Geometry"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Target Difficulty
+                </label>
+                <select
+                  className="form-input"
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value)}
+                >
+                  <option value="easy">Easy (Direct Formula Application)</option>
+                  <option value="medium">Medium (Competitive / Standard Exam)</option>
+                  <option value="hard">Hard (GMAT / IBA Advanced Trap Archetypes)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Number of Questions
+                </label>
+                <select
+                  className="form-input"
+                  value={questionCount}
+                  onChange={(e) => setQuestionCount(Number(e.target.value))}
+                >
+                  <option value={5}>5 Questions (Quick Drill - 12 mins)</option>
+                  <option value={10}>10 Questions (Standard Practice - 25 mins)</option>
+                  <option value={15}>15 Questions (Intensive Session - 40 mins)</option>
+                  <option value={20}>20 Questions (Full Assessment - 50 mins)</option>
+                  <option value={30}>30 Questions (Mastery Benchmark - 60 mins)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Custom Test Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Ch 6 Personal Sprint"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Error & Status Display */}
+            {error && (
+              <div
+                style={{
+                  padding: '1rem 1.25rem',
+                  borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  marginBottom: '1.5rem',
+                  fontSize: '0.9rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '240px' }}>
+                  <AlertCircle size={20} />
+                  <span>{error}</span>
+                </div>
+                {error.toLowerCase().includes('gemini') && (
+                  <Link
+                    to="/settings"
+                    className="btn-primary"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '0.8rem',
+                      background: '#ef4444',
+                      border: 'none',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span>Open Settings to Add Key</span>
+                    <ArrowRight size={14} />
+                  </Link>
+                )}
+              </div>
+            )}
+
+            {/* Action Button */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary"
+                style={{
+                  padding: '14px 28px',
+                  fontSize: '1rem',
+                  opacity: loading ? 0.7 : 1,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {loading ? (
+                  <>
+                    <Zap size={18} className="animate-spin" />
+                    <span>Synthesizing Questions with AI...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={18} />
+                    <span>Generate Private Practice Exam</span>
+                    <ArrowRight size={18} />
+                  </>
+                )}
+              </button>
+            </div>
+
+            {loading && (
+              <div style={{ marginTop: '1.5rem', textAlign: 'center', color: '#818cf8', fontSize: '0.9rem', fontWeight: 500 }}>
+                {statusMessage}
+              </div>
+            )}
+
+          </div>
+        </form>
+      ) : (
+        /* Generated Exam Success & Preview */
+        <div>
+          <div
+            className="glass-card"
+            style={{
+              padding: '2rem',
+              marginBottom: '2rem',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              background: 'linear-gradient(135deg, rgba(6, 78, 59, 0.2) 0%, rgba(15, 23, 42, 0.8) 100%)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34d399', fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>
+                  <CheckCircle size={18} />
+                  <span>Practice Test Successfully Compiled & Saved</span>
+                </div>
+                <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                  {generatedExam.title}
+                </h2>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '6px', fontSize: '0.85rem', color: '#94a3b8' }}>
+                  <span>Topic: <strong style={{ color: 'var(--text-main)' }}>{generatedExam.topic}</strong></span>
+                  <span>•</span>
+                  <span>Difficulty: <strong style={{ color: '#818cf8', textTransform: 'capitalize' }}>{generatedExam.difficulty}</strong></span>
+                  <span>•</span>
+                  <span>Questions: <strong style={{ color: 'var(--text-main)' }}>{generatedQuestions.length}</strong></span>
+                  <span>•</span>
+                  <span>Duration: <strong style={{ color: 'var(--text-main)' }}>{generatedExam.durationMinutes} mins</strong></span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGeneratedExam(null);
+                    setGeneratedQuestions([]);
+                  }}
+                  className="btn-secondary"
+                  style={{ padding: '12px 18px', fontSize: '0.9rem' }}
+                >
+                  <RotateCcw size={16} />
+                  <span>Generate Another</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={startExamImmediately}
+                  className="btn-primary"
+                  style={{
+                    padding: '12px 24px',
+                    fontSize: '0.95rem',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  }}
+                >
+                  <Play size={16} />
+                  <span>Start Practice Test Now</span>
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              fontSize: '0.85rem',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <span>Exam Code: <code style={{ color: '#818cf8', fontWeight: 700 }}>{generatedExam.examCode}</code> (Private to your account)</span>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                style={{ background: 'transparent', border: 'none', color: '#818cf8', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.85rem' }}
+              >
+                Go to Dashboard
+              </button>
+            </div>
+          </div>
+
+          {/* Question Previews */}
+          <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Layers size={18} color="#818cf8" />
+              <span>Question Preview ({generatedQuestions.length} Problems)</span>
+            </h3>
+            <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+              Verified formulas & step-by-step LaTeX derivations
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {generatedQuestions.map((q, idx) => (
+              <div
+                key={idx}
+                className="glass-card"
+                style={{
+                  padding: '1.75rem',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <span style={{ fontWeight: 800, color: '#818cf8', fontSize: '0.9rem' }}>
+                    Problem {idx + 1} of {generatedQuestions.length}
+                  </span>
+                  <span style={{
+                    fontSize: '0.75rem',
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    color: '#a5b4fc',
+                    fontWeight: 600,
+                  }}>
+                    {q.topic || generatedExam.topic}
+                  </span>
+                </div>
+
+                {/* Problem Statement */}
+                <div style={{ fontSize: '1.05rem', lineHeight: 1.6, color: 'var(--text-main)', marginBottom: '1.25rem' }}>
+                  <MathRenderer text={q.questionText} />
+                </div>
+
+                {/* Options List */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px', marginBottom: '1.25rem' }}>
+                  {(q.options || []).map((opt) => {
+                    const isCorrect = opt.key === q.correctOption;
+                    return (
+                      <div
+                        key={opt.key}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: isCorrect ? '1px solid rgba(16, 185, 129, 0.5)' : '1px solid var(--border-subtle)',
+                          background: isCorrect ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: '10px',
+                        }}
+                      >
+                        <span style={{
+                          fontWeight: 700,
+                          color: isCorrect ? '#10b981' : '#818cf8',
+                          minWidth: '22px',
+                        }}>
+                          {opt.key})
+                        </span>
+                        <div style={{ flex: 1, fontSize: '0.9rem', color: isCorrect ? '#10b981' : 'var(--text-main)' }}>
+                          <MathRenderer text={opt.text} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Explanation */}
+                {q.explanation && (
+                  <div style={{
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    borderLeft: '3px solid #818cf8',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-muted)',
+                  }}>
+                    <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '4px' }}>
+                      Derivation / Solution:
+                    </strong>
+                    <MathRenderer text={q.explanation} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom Launch Bar */}
+          <div style={{ marginTop: '2.5rem', textAlign: 'center' }}>
+            <button
+              type="button"
+              onClick={startExamImmediately}
+              className="btn-primary"
+              style={{
+                padding: '16px 36px',
+                fontSize: '1.1rem',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 8px 24px -4px rgba(16, 185, 129, 0.4)',
+              }}
+            >
+              <Play size={20} />
+              <span>Launch Practice Test Workspace Now</span>
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+export default StudentPracticeAi;

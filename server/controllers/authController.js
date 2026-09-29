@@ -206,3 +206,116 @@ exports.getMe = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Save student's personal Gemini API key
+// @route   PUT /api/auth/gemini-key
+// @access  Private
+exports.saveGeminiApiKey = async (req, res) => {
+  try {
+    const { geminiApiKey } = req.body;
+
+    if (geminiApiKey !== undefined && geminiApiKey !== null) {
+      const trimmedKey = (geminiApiKey || '').trim();
+
+      // Basic validation — allow empty string (to remove key) or proper key format
+      if (trimmedKey.length > 0 && trimmedKey.length < 10) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid API key format. A valid Gemini API key should be at least 10 characters. You can leave it empty to remove your key.',
+        });
+      }
+
+      await User.findByIdAndUpdate(req.user.id, { geminiApiKey: trimmedKey });
+
+      res.json({
+        success: true,
+        message: trimmedKey.length > 0
+          ? 'Your personal Gemini API key has been saved securely. All AI practice generation will now use your key.'
+          : 'Your Gemini API key has been removed. AI practice generation will use the platform\'s shared key (if available).',
+        hasKey: trimmedKey.length > 0,
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide the geminiApiKey field in the request body.',
+      });
+    }
+  } catch (error) {
+    console.error('saveGeminiApiKey error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Check if student has a Gemini API key saved (returns masked status, never the raw key)
+// @route   GET /api/auth/gemini-key
+// @access  Private
+exports.getGeminiApiKeyStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('+geminiApiKey');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const rawKey = user.geminiApiKey || '';
+    const hasKey = rawKey.length > 10;
+
+    res.json({
+      success: true,
+      hasKey,
+      maskedKey: hasKey
+        ? `${rawKey.substring(0, 4)}${'•'.repeat(Math.min(rawKey.length - 8, 20))}${rawKey.substring(rawKey.length - 4)}`
+        : '',
+    });
+  } catch (error) {
+    console.error('getGeminiApiKeyStatus error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Test a Gemini API key to verify it is valid and working
+// @route   POST /api/auth/gemini-key/test
+// @access  Private
+exports.testGeminiApiKey = async (req, res) => {
+  try {
+    let keyToTest = (req.body.geminiApiKey || '').trim();
+    if (!keyToTest) {
+      const user = await User.findById(req.user.id).select('+geminiApiKey');
+      keyToTest = (user?.geminiApiKey || '').trim();
+    }
+
+    if (!keyToTest || keyToTest.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid Gemini API key to test (must be at least 10 characters).',
+      });
+    }
+
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(keyToTest);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const startTime = Date.now();
+    const result = await model.generateContent('Respond with only the word: CONNECTED');
+    const latency = Date.now() - startTime;
+    const responseText = result.response.text();
+
+    res.json({
+      success: true,
+      message: `API Key successfully verified with Google AI Studio! (Response time: ${latency}ms)`,
+      latencyMs: latency,
+      sampleResponse: responseText.trim().substring(0, 50),
+    });
+  } catch (error) {
+    console.error('testGeminiApiKey error:', error.message);
+    let userMsg = error.message;
+    if (userMsg.includes('API_KEY_INVALID') || userMsg.includes('key not valid')) {
+      userMsg = 'Invalid Gemini API key. Please check that you copied the complete key from Google AI Studio.';
+    } else if (userMsg.includes('RESOURCE_EXHAUSTED')) {
+      userMsg = 'This API key has exceeded its rate limit or quota on Google AI Studio.';
+    }
+    res.status(400).json({
+      success: false,
+      message: userMsg,
+    });
+  }
+};
+

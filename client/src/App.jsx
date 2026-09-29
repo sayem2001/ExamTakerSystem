@@ -16,6 +16,8 @@ import ExamLobby from './pages/ExamLobby';
 import ExamWorkspace from './pages/ExamWorkspace';
 import ExamResults from './pages/ExamResults';
 import LeaderboardView from './pages/LeaderboardView';
+import StudentPracticeAi from './pages/StudentPracticeAi';
+import Settings from './pages/Settings';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -99,6 +101,14 @@ export const App = () => {
               }
             />
             <Route
+              path="/practice/ai"
+              element={
+                <ProtectedRoute>
+                  <StudentPracticeAi />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/workspace/:examId"
               element={
                 <ProtectedRoute>
@@ -111,6 +121,14 @@ export const App = () => {
               element={
                 <ProtectedRoute>
                   <ExamResults />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
                 </ProtectedRoute>
               }
             />

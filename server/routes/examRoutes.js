@@ -6,6 +6,8 @@ const {
   createExam,
   updateExam,
   deleteExam,
+  getMyPracticeExams,
+  deletePracticeExam,
 } = require('../controllers/examController');
 const { protect, adminOnly } = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
@@ -27,6 +29,10 @@ const optionalAuth = async (req, res, next) => {
   }
   next();
 };
+
+// Student personal practice exams
+router.get('/my-practice', protect, getMyPracticeExams);
+router.delete('/my-practice/:id', protect, deletePracticeExam);
 
 router.get('/', optionalAuth, getExams);
 router.get('/:identifier', optionalAuth, getExamByIdentifier);

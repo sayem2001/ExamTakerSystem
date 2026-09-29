@@ -9,6 +9,7 @@ const {
 const Question = require('../models/Question');
 const Exam = require('../models/Exam');
 const Topic = require('../models/Topic');
+const User = require('../models/User');
 
 // @desc    Phase 1: Read entire document, filter theory/notes, and extract ALL questions present
 // @route   POST /api/ai/extract-questions
@@ -54,11 +55,19 @@ exports.extractQuestions = async (req, res) => {
       });
     }
 
+    // Look up personal API key if user is logged in
+    let userApiKey = (req.body.geminiApiKey || '').trim();
+    if (!userApiKey && req.user?.id) {
+      const userDoc = await User.findById(req.user.id).select('+geminiApiKey');
+      if (userDoc?.geminiApiKey) userApiKey = userDoc.geminiApiKey.trim();
+    }
+
     // Call Phase 1 extraction service
     const extractResult = await extractAllQuestionsFromDocument({
       pdfPath: req.file ? req.file.path : null,
       pdfText: text,
       targetTopic: topic,
+      apiKey: userApiKey,
     });
 
     const extractedQuestions = extractResult.questions || [];
@@ -121,11 +130,19 @@ exports.generateFromExtracted = async (req, res) => {
       `[AI Controller] Synthesizing ${targetCount} ${difficulty.toUpperCase()} questions for "${topic}" from ${extractedQuestions.length} source questions...`
     );
 
+    // Look up personal API key if user is logged in
+    let userApiKey = (req.body.geminiApiKey || '').trim();
+    if (!userApiKey && req.user?.id) {
+      const userDoc = await User.findById(req.user.id).select('+geminiApiKey');
+      if (userDoc?.geminiApiKey) userApiKey = userDoc.geminiApiKey.trim();
+    }
+
     const genResult = await generateMCQsFromExtracted({
       extractedQuestions,
       targetTopic: topic,
       targetDifficulty: difficulty,
       questionCount: targetCount,
+      apiKey: userApiKey,
     });
 
     let questions = genResult.questions || [];
@@ -630,4 +647,263 @@ exports.deployVerifiedExam = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Student 1-Click AI Practice Generator (Isolated to student account)
+// @route   POST /api/ai/student-generate-practice
+// @access  Private (Student & Admin)
+exports.studentGeneratePractice = async (req, res) => {
+  try {
+    const {
+      topic = 'Quantitative Aptitude',
+      difficulty = 'medium',
+      questionCount = 10,
+      title = '',
+      pastedText = '',
+    } = req.body;
+
+    let text = '';
+    let originalName = 'Pasted Notes';
+
+    if (req.file) {
+      originalName = req.file.originalname;
+      const pdfData = await extractTextFromPDF(req.file.path);
+      text = pdfData.text;
+    } else {
+      const rawText = pastedText || req.body.text || '';
+      if (rawText && rawText.trim().length > 0) {
+        text = rawText.trim();
+        originalName = 'Pasted Study Material';
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Please upload a PDF document or paste your study material/questions.',
+        });
+      }
+    }
+
+    if (!text || text.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Could not extract text from the provided document or input.',
+      });
+    }
+
+    const count = Math.min(Math.max(parseInt(questionCount, 10) || 10, 3), 30);
+    const diff = ['easy', 'medium', 'hard'].includes((difficulty || '').toLowerCase())
+      ? difficulty.toLowerCase()
+      : 'medium';
+
+    // Retrieve student's personal Gemini API key if configured
+    let studentApiKey = (req.body.geminiApiKey || '').trim();
+    if (!studentApiKey && req.user?.id) {
+      const userDoc = await User.findById(req.user.id).select('+geminiApiKey');
+      if (userDoc?.geminiApiKey) {
+        studentApiKey = userDoc.geminiApiKey.trim();
+      }
+    }
+
+    // Step 1: Extract core question seeds / concepts from text
+    const extractResult = await extractAllQuestionsFromDocument({
+      pdfPath: req.file ? req.file.path : null,
+      pdfText: text,
+      targetTopic: topic,
+      apiKey: studentApiKey,
+    });
+
+    const extractedSeeds = extractResult.questions || [];
+    const detectedTopic = extractResult.detectedTopic || topic || 'Quantitative Practice';
+
+    // Step 2: Generate configured number of diverse questions
+    const genResult = await generateMCQsFromExtracted({
+      extractedQuestions:
+        extractedSeeds.length > 0
+          ? extractedSeeds
+          : [{ questionNumber: 1, text: text.substring(0, 1500), topic: detectedTopic }],
+      targetTopic: detectedTopic,
+      difficulty: diff,
+      questionCount: count,
+      apiKey: studentApiKey,
+    });
+
+    const generatedQuestions = genResult.questions || [];
+
+    if (generatedQuestions.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to generate practice questions from the provided material. Please try again.',
+      });
+    }
+
+    // Step 3: Save Questions isolated to this student
+    const createdQuestionDocs = await Question.insertMany(
+      generatedQuestions.map((q) => ({
+        topic: detectedTopic,
+        difficulty: diff,
+        questionText: q.questionText,
+        options: q.options,
+        correctOption: (q.correctOption || 'A').toUpperCase().trim(),
+        explanation: q.explanation || '',
+        points: diff === 'hard' ? 2 : 1,
+        negativePoints: diff === 'hard' ? 0.5 : 0.25,
+        isPractice: true,
+        createdBy: req.user.id,
+      }))
+    );
+
+    // Step 4: Create Exam document marked isPractice: true and createdBy: req.user.id
+    const topicPrefix = detectedTopic.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'PR') || 'PRAC';
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const examCode = `PRAC-${topicPrefix}-${rand}`;
+
+    const durationMinutes = Math.max(15, Math.round(count * 2.5));
+    const examTitle =
+      title && title.trim().length > 0
+        ? title.trim()
+        : `${detectedTopic} - Private AI Practice Set (${diff.toUpperCase()})`;
+
+    const exam = await Exam.create({
+      title: examTitle,
+      topic: detectedTopic,
+      difficulty: diff,
+      description: `Personalized AI practice set generated from ${originalName}. Contains ${count} ${diff} questions.`,
+      examCode,
+      scheduledDate: new Date(),
+      scheduledEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year validity
+      durationMinutes,
+      passPercentage: 50,
+      negativeMarking: true,
+      negativeMarkingRate: diff === 'hard' ? 0.5 : 0.25,
+      antiCheatSettings: {
+        fullScreenRequired: false, // relaxed for practice
+        maxTabSwitches: 10,
+        blockCopyPaste: false,
+        disableRightClick: false,
+      },
+      status: 'published',
+      isPractice: true,
+      createdBy: req.user.id,
+      questions: createdQuestionDocs.map((q) => q._id),
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully generated ${createdQuestionDocs.length} practice questions!`,
+      exam: {
+        ...exam.toObject(),
+        questions: createdQuestionDocs,
+      },
+      count: createdQuestionDocs.length,
+      usedPersonalApiKey: Boolean(studentApiKey && studentApiKey.length > 10),
+    });
+  } catch (error) {
+    console.error('studentGeneratePractice error:', error);
+    let errMsg = error.message;
+    if (errMsg && (errMsg.includes('Gemini API key is not configured') || errMsg.includes('API_KEY_INVALID'))) {
+      errMsg = `${errMsg} You can configure your own free Gemini API key in Settings (get one at https://aistudio.google.com/app/apikey).`;
+    }
+    res.status(500).json({ success: false, message: errMsg });
+  }
+};
+
+// @desc    Student Phase 1 Extract (Optional 2-step flow)
+// @route   POST /api/ai/student-extract
+// @access  Private (Student & Admin)
+exports.studentExtractQuestions = async (req, res) => {
+  return exports.extractQuestions(req, res);
+};
+
+// @desc    Student Phase 2 Generate (Optional 2-step flow)
+// @route   POST /api/ai/student-generate
+// @access  Private (Student & Admin)
+exports.studentGenerateQuestions = async (req, res) => {
+  return exports.generateFromExtracted(req, res);
+};
+
+// @desc    Student Save Practice Exam (Custom questions)
+// @route   POST /api/ai/student-save-practice
+// @access  Private (Student & Admin)
+exports.studentSavePractice = async (req, res) => {
+  try {
+    const {
+      title,
+      topic = 'Practice',
+      difficulty = 'medium',
+      questions = [],
+      durationMinutes = 30,
+    } = req.body;
+
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one practice question is required.',
+      });
+    }
+
+    const diff = ['easy', 'medium', 'hard'].includes((difficulty || '').toLowerCase())
+      ? difficulty.toLowerCase()
+      : 'medium';
+
+    // Insert questions marked isPractice: true and createdBy: req.user.id
+    const createdQuestionDocs = await Question.insertMany(
+      questions.map((q) => ({
+        topic,
+        difficulty: diff,
+        questionText: q.questionText,
+        options: q.options,
+        correctOption: (q.correctOption || 'A').toUpperCase().trim(),
+        explanation: q.explanation || '',
+        points: diff === 'hard' ? 2 : 1,
+        negativePoints: diff === 'hard' ? 0.5 : 0.25,
+        isPractice: true,
+        createdBy: req.user.id,
+      }))
+    );
+
+    const topicPrefix = topic.substring(0, 4).toUpperCase().replace(/[^A-Z]/g, 'PR') || 'PRAC';
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const examCode = `PRAC-${topicPrefix}-${rand}`;
+
+    const examTitle =
+      title && title.trim().length > 0
+        ? title.trim()
+        : `${topic} - Private Practice Set (${diff.toUpperCase()})`;
+
+    const exam = await Exam.create({
+      title: examTitle,
+      topic,
+      difficulty: diff,
+      description: `Custom practice set containing ${createdQuestionDocs.length} questions.`,
+      examCode,
+      scheduledDate: new Date(),
+      scheduledEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      durationMinutes: parseInt(durationMinutes, 10) || Math.max(15, Math.round(questions.length * 2.5)),
+      passPercentage: 50,
+      negativeMarking: true,
+      negativeMarkingRate: diff === 'hard' ? 0.5 : 0.25,
+      antiCheatSettings: {
+        fullScreenRequired: false,
+        maxTabSwitches: 10,
+        blockCopyPaste: false,
+        disableRightClick: false,
+      },
+      status: 'published',
+      isPractice: true,
+      createdBy: req.user.id,
+      questions: createdQuestionDocs.map((q) => q._id),
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Practice test created successfully!',
+      exam: {
+        ...exam.toObject(),
+        questions: createdQuestionDocs,
+      },
+    });
+  } catch (error) {
+    console.error('studentSavePractice error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 

@@ -17,6 +17,9 @@ exports.getExams = async (req, res) => {
       filter.status = status;
     }
 
+    // Exclude private practice exams from public / admin general catalog
+    filter.isPractice = { $ne: true };
+
     if (topic && topic !== 'All') {
       filter.topic = new RegExp(topic, 'i');
     }
@@ -46,6 +49,7 @@ exports.getExams = async (req, res) => {
         return {
           ...exam,
           userAttempt: att ? { status: att.status, score: att.score, percentage: att.percentage } : null,
+          userAttemptId: att ? att._id : null,
           hasAttempted: att ? (att.status === 'submitted' || att.status === 'auto-submitted') : false,
         };
       });
@@ -86,6 +90,18 @@ exports.getExamByIdentifier = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Exam not found' });
     }
 
+    // Verify privacy if this is a student's private practice exam
+    if (exam.isPractice) {
+      const isOwner = req.user && exam.createdBy && exam.createdBy.toString() === req.user.id.toString();
+      const isAdmin = req.user?.role === 'admin';
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'This is a private student practice test. Access is restricted to the student who created it.',
+        });
+      }
+    }
+
     // Check if user already attempted this exam
     let userAttempt = null;
     let hasAttempted = false;
@@ -94,7 +110,7 @@ exports.getExamByIdentifier = async (req, res) => {
       userAttempt = await ExamAttempt.findOne({
         user: req.user.id,
         exam: exam._id,
-      });
+      }).sort({ createdAt: -1 });
 
       if (userAttempt && (userAttempt.status === 'submitted' || userAttempt.status === 'auto-submitted')) {
         hasAttempted = true;
@@ -221,3 +237,85 @@ exports.deleteExam = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Get current user's private AI practice exams
+// @route   GET /api/exams/my-practice
+// @access  Private (Protected)
+exports.getMyPracticeExams = async (req, res) => {
+  try {
+    const exams = await Exam.find({
+      isPractice: true,
+      createdBy: req.user.id,
+    })
+      .populate('questions')
+      .sort({ createdAt: -1 });
+
+    const examIds = exams.map((e) => e._id);
+    const userAttempts = await ExamAttempt.find({
+      user: req.user.id,
+      exam: { $in: examIds },
+    })
+      .select('_id exam status score maxScore percentage passed submittedAt createdAt')
+      .sort({ createdAt: -1 });
+
+    const attemptMap = {};
+    userAttempts.forEach((att) => {
+      // Keep most recent attempt per exam
+      if (!attemptMap[att.exam.toString()]) {
+        attemptMap[att.exam.toString()] = att;
+      }
+    });
+
+    const examsWithAttempts = exams.map((exam) => {
+      const att = attemptMap[exam._id.toString()];
+      return {
+        ...exam.toObject(),
+        userAttempt: att || null,
+        userAttemptId: att ? att._id : null,
+        hasAttempted: att ? (att.status === 'submitted' || att.status === 'auto-submitted') : false,
+      };
+    });
+
+    res.json({
+      success: true,
+      count: examsWithAttempts.length,
+      exams: examsWithAttempts,
+    });
+  } catch (error) {
+    console.error('getMyPracticeExams error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Delete a personal practice exam
+// @route   DELETE /api/exams/my-practice/:id
+// @access  Private (Protected)
+exports.deletePracticeExam = async (req, res) => {
+  try {
+    const exam = await Exam.findOne({
+      _id: req.params.id,
+      isPractice: true,
+      createdBy: req.user.id,
+    });
+
+    if (!exam) {
+      return res.status(404).json({ success: false, message: 'Practice exam not found or unauthorized' });
+    }
+
+    // Delete associated practice questions if created for this exam
+    if (exam.questions && exam.questions.length > 0) {
+      await Question.deleteMany({ _id: { $in: exam.questions }, isPractice: true, createdBy: req.user.id });
+    }
+
+    // Delete attempts for this practice exam
+    await ExamAttempt.deleteMany({ exam: exam._id, user: req.user.id });
+
+    await Exam.findByIdAndDelete(exam._id);
+
+    res.json({ success: true, message: 'Practice exam deleted successfully' });
+  } catch (error) {
+    console.error('deletePracticeExam error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+

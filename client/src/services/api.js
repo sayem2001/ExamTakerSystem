@@ -53,6 +53,38 @@ export const api = {
     return data;
   },
 
+  // Student Gemini API Key Management
+  async getStudentGeminiKeyStatus() {
+    const res = await fetch(`${BASE_URL}/api/auth/gemini-key`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch Gemini API key status');
+    return data;
+  },
+
+  async saveStudentGeminiKey(geminiApiKey) {
+    const res = await fetch(`${BASE_URL}/api/auth/gemini-key`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ geminiApiKey }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to save Gemini API key');
+    return data;
+  },
+
+  async testStudentGeminiKey(geminiApiKey = '') {
+    const res = await fetch(`${BASE_URL}/api/auth/gemini-key/test`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ geminiApiKey }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to test Gemini API key');
+    return data;
+  },
+
   // Exams
   async getExams(filters = {}) {
     const query = new URLSearchParams(filters).toString();
@@ -105,6 +137,25 @@ export const api = {
     return data;
   },
 
+  async getMyPracticeExams() {
+    const res = await fetch(`${BASE_URL}/api/exams/my-practice`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch personal practice exams');
+    return data;
+  },
+
+  async deletePracticeExam(id) {
+    const res = await fetch(`${BASE_URL}/api/exams/my-practice/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to delete practice exam');
+    return data;
+  },
+
   // Attempts
   async startAttempt(examId) {
     const res = await fetch(`${BASE_URL}/api/attempts/start/${examId}`, {
@@ -154,6 +205,15 @@ export const api = {
     return data;
   },
 
+  async getMyPerformance() {
+    const res = await fetch(`${BASE_URL}/api/attempts/my-performance`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch performance analytics');
+    return data;
+  },
+
   // Leaderboard
   async getExamLeaderboard(examId) {
     const res = await fetch(`${BASE_URL}/api/leaderboard/exam/${examId}`, {
@@ -171,7 +231,35 @@ export const api = {
     return data;
   },
 
-  // AI & PDF
+  // Student AI Practice Generator
+  async studentGeneratePractice(formDataOrPayload) {
+    const token = localStorage.getItem('apex_token');
+    const isFormData = formDataOrPayload instanceof FormData;
+    const res = await fetch(`${BASE_URL}/api/ai/student-generate-practice`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: isFormData ? formDataOrPayload : JSON.stringify(formDataOrPayload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'AI practice generation failed');
+    return data;
+  },
+
+  async studentSavePractice(payload) {
+    const res = await fetch(`${BASE_URL}/api/ai/student-save-practice`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to save practice exam');
+    return data;
+  },
+
+  // AI & PDF (Admin)
   async extractQuestionsFromDoc(formData) {
     const token = localStorage.getItem('apex_token');
     const res = await fetch(`${BASE_URL}/api/ai/extract-questions`, {

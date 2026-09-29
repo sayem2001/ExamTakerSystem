@@ -66,6 +66,53 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     .replace(/\s*```$/m, '')
     .trim();
 
+  // Helper to remove scratchpad monologue and fix LaTeX escaping
+  const cleanMathAndExplanation = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    let s = str;
+
+    // 1. Remove LLM chain-of-thought scratchpad leakage
+    const scratchpadPatterns = [
+      /\s*(?:Wait,?\s+)?let'?s\s+(?:recalculate|re-verify|check|adjust|solve|use|correct|ensure|rewrite|make|see|analyze\s+carefully).*$/is,
+      /\s*\?\s*No,?\s+let'?s.*$/is,
+      /\s*Regardless,?\s+the\s+rigorous\s+calculation.*$/is,
+    ];
+    for (const pat of scratchpadPatterns) {
+      const m = s.search(pat);
+      if (m !== -1 && m > 30) {
+        const before = s.slice(0, m).trim();
+        const conclusionMatch = s.match(/(?:Therefore|Thus|Hence)[^.!?\n]+(?:Option\s+[A-E]|is\s+correct|\$[0-9.]+|[0-9.]+\%)[^.!?\n]*[.!?]/i);
+        s = before + (conclusionMatch ? ' ' + conclusionMatch[0] : '');
+      }
+    }
+
+    // 2. Fix corrupted control codes & multiple slashes
+    s = s
+      .replace(/\\{3,}/g, '\\\\')
+      .replace(/\r(?=ightarrow)/g, '\\')
+      .replace(/\t(?=imes|ext)/g, '\\')
+      .replace(/\f(?=rac)/g, '\\')
+      .replace(/\u000c(?=rac)/g, '\\')
+      .replace(/\\?(\f|\\f|\u000c)rac/g, '\\frac')
+      .replace(/\\?(\r|\\r)ightarrow/g, '\\rightarrow')
+      .replace(/\\?(\t|\\t)imes/g, '\\times')
+      .replace(/\\?(\t|\\t)ext/g, '\\text')
+      .replace(/\\(\$)/g, '$')
+      .replace(/\\\\%/g, '%')
+      .replace(/\\%/g, '%');
+
+    // 3. Fix letter-spacing caused by ASCII control characters
+    s = s.replace(/([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])(?:\s+([a-zA-Z]))*/g, (match) => {
+      const condensed = match.replace(/\s+/g, '');
+      if (condensed.length >= 4 && !/^[A-Z]+$/.test(condensed) && !/\b[A-E]\b/.test(match)) {
+        return condensed;
+      }
+      return match;
+    });
+
+    return s.trim();
+  };
+
   // Helper to standardize and validate question structure
   const normalizeQuestion = (q, idx = 0) => {
     if (!q || !q.questionText || typeof q.questionText !== 'string' || q.questionText.trim().length < 5) {
@@ -80,7 +127,7 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
           const match = opt.match(/^([A-E])[\).:\s]+(.*)$/i);
           return {
             key: match ? match[1].toUpperCase() : defaultKey,
-            text: match ? match[2].trim() : opt.trim(),
+            text: cleanMathAndExplanation(match ? match[2].trim() : opt.trim()),
           };
         }
         const key = (opt.key || defaultKey).toString().toUpperCase().trim();
@@ -88,7 +135,7 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
           .toString()
           .replace(/^[A-E][\).:\s]+/i, '')
           .trim();
-        return { key, text: optText };
+        return { key, text: cleanMathAndExplanation(optText) };
       });
     }
 
@@ -109,12 +156,12 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     }
 
     return {
-      questionText: q.questionText.trim(),
+      questionText: cleanMathAndExplanation(q.questionText),
       difficulty: q.difficulty || defaultDifficulty,
       topic: q.topic || defaultTopic,
       options,
       correctOption,
-      explanation: q.explanation ? q.explanation.trim() : 'Step-by-step mathematical derivation.',
+      explanation: cleanMathAndExplanation(q.explanation ? q.explanation.trim() : 'Step-by-step mathematical derivation.'),
       sourceQuestionIndex: q.sourceQuestionIndex || q.sourceIndex || null,
       caseType: q.caseType || q.archetype || 'General Case',
       modificationApplied: q.modificationApplied || '',
@@ -772,9 +819,11 @@ SPECIFIC DIFFICULTY CONDITION:
 ${selectedRule}
 ${exclusionText}
 
-QUANTITY MANDATE:
+QUANTITY & QUALITY MANDATE:
 - Generate EXACTLY ${countToFetch} questions (numbered ${startIdx} to ${startIdx + countToFetch - 1}).
 - Use clean LaTeX for all mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 25%).
+- When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\$).
+- CRITICAL: In the "explanation" field, output ONLY the clean, final step-by-step mathematical proof. NEVER include internal draft thoughts, self-corrections, or phrases like "Wait, let's recalculate", "Let's check", "No, let's look at", or "Let's adjust numbers". State the solution directly, cleanly, and decisively.
 
 SOURCE QUESTIONS FROM DOCUMENT (DIVERSE CASES):
 ---

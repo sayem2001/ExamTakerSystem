@@ -59,6 +59,15 @@ const questionSchema = new mongoose.Schema(
       filename: String,
       uploadedAt: Date,
     },
+    isPractice: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
   },
   { timestamps: true }
 );
