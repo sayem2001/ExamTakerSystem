@@ -187,21 +187,22 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     sanitized = sanitized.replace(/,\s*([\]\}])/g, '$1');
     try {
       const parsed = JSON.parse(sanitized);
-      return Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
+      return Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || (parsed.questionText ? parsed : null));
     } catch (e) {
       try {
         const doubleEsc = sanitized.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
         const parsed = JSON.parse(doubleEsc);
-        return Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
+        return Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || (parsed.questionText ? parsed : null));
       } catch (e2) {
         return null;
       }
     }
   };
 
-  const sanitizedArr = trySanitizedParse(text);
-  if (sanitizedArr) {
-    const valid = sanitizedArr.map(normalizeQuestion).filter(Boolean);
+  const sanitizedResult = trySanitizedParse(text);
+  if (sanitizedResult) {
+    const list = Array.isArray(sanitizedResult) ? sanitizedResult : [sanitizedResult];
+    const valid = list.map(normalizeQuestion).filter(Boolean);
     if (valid.length > 0) return valid;
   }
 
@@ -825,8 +826,8 @@ Output the entire response as a valid JSON array of question objects:
   let allQuestions = [];
   let lastModelUsed = 'gemini';
 
-  // Resilient Micro-Batching Loop: Chunks of 10 to guarantee exact counts (30, 40, 50 questions) without token cutoff
-  const BATCH_SIZE = 10;
+  // Resilient Micro-Batching Loop: Chunks of 6 (Hard) or 10 (Easy/Medium) to guarantee exact counts without token cutoff
+  const BATCH_SIZE = diffNormalized === 'hard' ? 6 : 10;
   const totalBatchesNeeded = Math.ceil(targetCount / BATCH_SIZE);
   console.log(
     `[Gemini Engine] Planned execution: ${totalBatchesNeeded} micro-batches of up to ${BATCH_SIZE} questions to guarantee all ${targetCount} questions without token cutoff.`
