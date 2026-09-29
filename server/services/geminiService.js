@@ -28,14 +28,18 @@ const extractTextFromPDF = async (filePath) => {
 };
 
 /**
- * Retrieve the active Gemini API key from DB or process.env
+ * Retrieve the active Gemini API key from DB or process.env (supports comma-separated backup keys)
  */
 const getActiveApiKey = async (providedKey = '') => {
   if (providedKey && providedKey.trim().length > 10) {
     return providedKey.trim();
   }
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10) {
-    return process.env.GEMINI_API_KEY.trim();
+    const keys = process.env.GEMINI_API_KEY.split(',').map((k) => k.trim()).filter((k) => k.length > 10);
+    if (keys.length > 0) return keys[0];
+  }
+  if (process.env.GEMINI_FALLBACK_KEY && process.env.GEMINI_FALLBACK_KEY.trim().length > 10) {
+    return process.env.GEMINI_FALLBACK_KEY.trim();
   }
   try {
     const setting = await SystemSetting.findOne().lean();
