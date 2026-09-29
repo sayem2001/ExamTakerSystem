@@ -129,42 +129,108 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     if (valid.length > 0) return valid;
   } catch (err) {}
 
-  // 2. Sanitize unescaped LaTeX backslashes without corrupting JSON strings
-  try {
-    const sanitized = text.replace(/\\([a-zA-Z]+)/g, (match, word) => {
-      if (/^(n|r|t|b|f)$/.test(word)) return match;
-      return '\\\\' + word;
-    });
-    const parsed = JSON.parse(sanitized);
-    const arr = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
-    const valid = arr.map(normalizeQuestion).filter(Boolean);
-    if (valid.length > 0) return valid;
-  } catch (err) {}
-
-  // 3. Escape all backslashes not followed by valid JSON escape character
-  try {
-    const fixed = text.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
-    const parsed = JSON.parse(fixed);
-    const arr = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
-    const valid = arr.map(normalizeQuestion).filter(Boolean);
-    if (valid.length > 0) return valid;
-  } catch (err) {}
-
-  // 3. Regex JSON block extraction
-  const jsonBlockRegex = /\{[\s\r\n]*"questionText"[\s\S]*?"options"[\s\S]*?"correctOption"[\s\S]*?\}/g;
-  let blockMatch;
-  const jsonBlocks = [];
-  while ((blockMatch = jsonBlockRegex.exec(text)) !== null) {
+  // 2. Sanitize unescaped LaTeX backslashes and control characters inside strings
+  const trySanitizedParse = (rawStr) => {
+    let sanitized = '';
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < rawStr.length; i++) {
+      const c = rawStr[i];
+      if (inStr) {
+        if (esc) {
+          esc = false;
+          if (/["\\/bfnrtu]/.test(c)) {
+            sanitized += c;
+          } else {
+            sanitized += '\\\\' + c;
+          }
+        } else if (c === '\\') {
+          esc = true;
+          sanitized += c;
+        } else if (c === '"') {
+          inStr = false;
+          sanitized += c;
+        } else if (c === '\n') {
+          sanitized += '\\n';
+        } else if (c === '\r') {
+          sanitized += '\\r';
+        } else if (c === '\t') {
+          sanitized += '\\t';
+        } else {
+          sanitized += c;
+        }
+      } else {
+        if (c === '"') {
+          inStr = true;
+        }
+        sanitized += c;
+      }
+    }
+    // Clean trailing commas
+    sanitized = sanitized.replace(/,\s*([\]\}])/g, '$1');
     try {
-      const fixed = blockMatch[0]
-        .replace(/\\/g, '\\\\')
-        .replace(/\\\\(["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\$1');
-      const q = JSON.parse(fixed);
-      const normalized = normalizeQuestion(q);
-      if (normalized) jsonBlocks.push(normalized);
-    } catch (e) {}
+      const parsed = JSON.parse(sanitized);
+      return Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
+    } catch (e) {
+      try {
+        const doubleEsc = sanitized.replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, '\\\\');
+        const parsed = JSON.parse(doubleEsc);
+        return Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
+      } catch (e2) {
+        return null;
+      }
+    }
+  };
+
+  const sanitizedArr = trySanitizedParse(text);
+  if (sanitizedArr) {
+    const valid = sanitizedArr.map(normalizeQuestion).filter(Boolean);
+    if (valid.length > 0) return valid;
   }
-  if (jsonBlocks.length > 0) return jsonBlocks;
+
+  // 3. Balanced Brace Object-by-Object Extractor (Resilient against partial batch cutoffs or single-item errors)
+  const extractedByBraces = [];
+  let depth = 0;
+  let startIdx = -1;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escapeNext) {
+        escapeNext = false;
+      } else if (ch === '\\') {
+        escapeNext = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === '{') {
+      if (depth === 0) startIdx = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && startIdx !== -1) {
+        const objStr = text.slice(startIdx, i + 1);
+        startIdx = -1;
+        const objParsed = trySanitizedParse(objStr);
+        if (objParsed) {
+          const norm = normalizeQuestion(objParsed);
+          if (norm) extractedByBraces.push(norm);
+        }
+      }
+    }
+  }
+
+  if (extractedByBraces.length > 0) return extractedByBraces;
 
   // 4. Fallback text parser (for formatted text outputs like: 1. Question... A) ... B) ... Answer: B)
   const textQuestions = [];
@@ -750,7 +816,7 @@ Output the entire response as a valid JSON array of question objects:
   );
 
   let batchIndex = 0;
-  const maxAttempts = totalBatchesNeeded + 2;
+  const maxAttempts = Math.max(totalBatchesNeeded * 3, 10);
 
   while (allQuestions.length < targetCount && batchIndex < maxAttempts) {
     batchIndex++;
