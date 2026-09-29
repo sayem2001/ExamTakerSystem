@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import MathRenderer from '../../components/MathRenderer';
+import ExplanationRenderer from '../../components/ExplanationRenderer';
 import {
   FileQuestion,
   Plus,
@@ -245,19 +246,13 @@ export const AdminQuestionBank = () => {
                 ))}
               </div>
 
-              {/* Explanation */}
+              {/* Detailed Explanation */}
               {q.explanation && (
-                <div style={{
-                  background: 'rgba(99, 102, 241, 0.05)',
-                  border: '1px solid rgba(99, 102, 241, 0.15)',
-                  borderRadius: '6px',
-                  padding: '10px 14px',
-                  fontSize: '0.85rem',
-                  color: '#cbd5e1',
-                }}>
-                  <strong style={{ color: '#818cf8', display: 'block', marginBottom: '2px' }}>Derivation:</strong>
-                  <MathRenderer text={q.explanation} />
-                </div>
+                <ExplanationRenderer
+                  explanation={q.explanation}
+                  correctOption={q.correctOption}
+                  defaultExpanded={false}
+                />
               )}
             </div>
           ))

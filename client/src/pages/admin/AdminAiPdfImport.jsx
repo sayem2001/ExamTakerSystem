@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import MathRenderer from '../../components/MathRenderer';
+import ExplanationRenderer from '../../components/ExplanationRenderer';
 import {
   UploadCloud,
   FileText,
@@ -93,8 +94,17 @@ export const AdminAiPdfImport = () => {
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
-        setError('Please select a valid PDF document.');
+      const ext = file.name.toLowerCase();
+      const isDocValid =
+        file.type === 'application/pdf' ||
+        file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.type === 'application/msword' ||
+        ext.endsWith('.pdf') ||
+        ext.endsWith('.docx') ||
+        ext.endsWith('.doc');
+
+      if (!isDocValid) {
+        setError('Please select a valid PDF or Word (.docx) document.');
         return;
       }
       setPdfFile(file);
@@ -104,7 +114,7 @@ export const AdminAiPdfImport = () => {
       setExtractionMeta(null);
 
       // Auto-detect topic from filename
-      const filename = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+      const filename = file.name.replace(/\.(pdf|docx|doc)$/i, '').replace(/[-_]/g, ' ');
       if (/profit|loss/i.test(filename)) {
         setTopic('Profit and Loss');
       } else if (/calculus|integral|derivative/i.test(filename)) {
@@ -828,7 +838,7 @@ export const AdminAiPdfImport = () => {
               }}>
                 <input
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                   onChange={handleFileChange}
                   style={{
                     position: 'absolute',
@@ -882,10 +892,10 @@ export const AdminAiPdfImport = () => {
                 ) : (
                   <div>
                     <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
-                      Click to select or drag and drop your exam PDF
+                      Click to select or drag and drop your exam PDF or Word DOCX
                     </div>
                     <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
-                      Reads full document from first to last page • Ignores theoretical content & formulas
+                      Reads full document from first to last page • Supports PDF and Word (.docx) • Ignores theory & formulas
                     </div>
                   </div>
                 )}
@@ -1710,19 +1720,13 @@ export const AdminAiPdfImport = () => {
                   })}
                 </div>
 
-                {/* Step-by-Step Explanation */}
+                {/* Step-by-Step Detailed Explanation */}
                 {q.explanation && (
-                  <div style={{
-                    background: 'rgba(255, 255, 255, 0.02)',
-                    borderLeft: '3px solid #6366f1',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '0 8px 8px 0',
-                    fontSize: '0.85rem',
-                    color: '#cbd5e1',
-                  }}>
-                    <strong style={{ color: '#a5b4fc' }}>Derivation / Solution: </strong>
-                    <MathRenderer text={q.explanation} />
-                  </div>
+                  <ExplanationRenderer
+                    explanation={q.explanation}
+                    correctOption={q.correctOption}
+                    defaultExpanded={true}
+                  />
                 )}
 
               </div>

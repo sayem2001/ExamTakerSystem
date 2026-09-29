@@ -19,11 +19,20 @@ const storage = multer.diskStorage({
   },
 });
 
+const allowedExtensions = ['.pdf', '.docx', '.doc'];
+const allowedMimeTypes = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/octet-stream',
+];
+
 const fileFilter = (req, file, cb) => {
-  if (file.mimetype === 'application/pdf' || path.extname(file.originalname).toLowerCase() === '.pdf') {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowedExtensions.includes(ext) || allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF documents are supported for MCQ generation'), false);
+    cb(new Error('Only PDF and Word (.docx, .doc) documents are supported for MCQ generation'), false);
   }
 };
 

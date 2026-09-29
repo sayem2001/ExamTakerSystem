@@ -1,29 +1,49 @@
 const fs = require('fs');
+const path = require('path');
 const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const SystemSetting = require('../models/SystemSetting');
 const { fetchGmatModificationIdeas } = require('./webSearchService');
 const { extractStructuredQuestionsFromText } = require('./pdfQuestionParser');
 
 /**
- * Extract raw text from an uploaded PDF file safely
+ * Extract raw text from an uploaded PDF or Word DOCX document safely
  */
 const extractTextFromPDF = async (filePath) => {
   try {
-    if (!fs.existsSync(filePath)) {
-      return { text: '', numPages: 1, info: null };
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { text: '', numPages: 1, info: null, fileType: 'none' };
     }
+
+    const ext = path.extname(filePath).toLowerCase();
+
+    // Word Document (.docx, .doc)
+    if (ext === '.docx' || ext === '.doc') {
+      console.log(`[Document Parser] Extracting text from Word document: ${path.basename(filePath)}`);
+      const result = await mammoth.extractRawText({ path: filePath });
+      const docxText = result.value || '';
+      console.log(`[Document Parser] Extracted ${docxText.length} characters from DOCX.`);
+      return {
+        text: docxText,
+        numPages: Math.max(1, Math.ceil(docxText.length / 2500)),
+        info: { title: path.basename(filePath) },
+        fileType: 'docx',
+      };
+    }
+
+    // PDF Document
     const dataBuffer = fs.readFileSync(filePath);
     const pdfData = await pdfParse(dataBuffer);
     return {
       text: pdfData.text || '',
       numPages: pdfData.numpages || 1,
       info: pdfData.info,
+      fileType: 'pdf',
     };
   } catch (error) {
-    console.warn('[PDF Parser] Warning reading PDF buffer text:', error.message);
-    // Non-fatal, as Gemini can read PDF directly as inlineData
-    return { text: '', numPages: 1, info: null };
+    console.warn('[Document Parser] Warning reading document buffer text:', error.message);
+    return { text: '', numPages: 1, info: null, fileType: 'error' };
   }
 };
 
@@ -97,9 +117,15 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
       .replace(/\\?(\r|\\r)ightarrow/g, '\\rightarrow')
       .replace(/\\?(\t|\\t)imes/g, '\\times')
       .replace(/\\?(\t|\\t)ext/g, '\\text')
+      .replace(/\\?(?:ext|\\ext)\b/g, '\\text')
+      .replace(/\\?(?:imes|\\imes)\b/g, '\\times')
+      .replace(/\\?(?:rac|\\rac)\b/g, '\\frac')
+      .replace(/\\?(?:ightarrow|\\ightarrow)\b/g, '\\rightarrow')
       .replace(/\\(\$)/g, '$')
       .replace(/\\\\%/g, '%')
-      .replace(/\\%/g, '%');
+      .replace(/\\%/g, '%')
+      // Fix double-typed numbers and percentages (e.g. 40%40% -> 40%, 1.51.5 -> 1.5, 250250 -> 250)
+      .replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
 
     // 3. Fix letter-spacing caused by ASCII control characters
     s = s.replace(/([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])(?:\s+([a-zA-Z]))*/g, (match) => {
@@ -430,8 +456,9 @@ const buildGeminiContentParts = ({ pdfPath, textContent, promptText }) => {
   // Attach native PDF document if under 20MB
   if (pdfPath && fs.existsSync(pdfPath)) {
     try {
+      const ext = path.extname(pdfPath).toLowerCase();
       const stats = fs.statSync(pdfPath);
-      if (stats.size > 0 && stats.size <= 20 * 1024 * 1024) {
+      if (ext === '.pdf' && stats.size > 0 && stats.size <= 20 * 1024 * 1024) {
         const base64Data = fs.readFileSync(pdfPath).toString('base64');
         parts.push({
           inlineData: {
@@ -764,7 +791,7 @@ const generateMCQsFromExtracted = async ({
    - If generating multiple questions, formulate distinct numerical variations across the diverse problem archetypes.
 3. Recalculate all 4 options (A, B, C, D) using the new substituted values.
 4. Accurately identify the correctOption.
-5. Provide a clear step-by-step mathematical explanation showing how the answer is calculated using the new values.
+5. Provide a detailed, pedagogical step-by-step mathematical explanation breaking down given data, core formula, numbered derivation steps, and conclusion.
 6. Tag each question with "modificationApplied": "Value modification: [briefly state values changed]".`,
 
     medium: `DIFFICULTY: MEDIUM (CONCEPT-PRESERVING SLIGHT MODIFICATIONS)
@@ -775,7 +802,7 @@ const generateMCQsFromExtracted = async ({
    c) Add extra contextual information while hiding or requiring derivation of some intermediate details (e.g. adding an overhead maintenance/repair cost before resale, or requiring computing the cost price first before applying a second condition).
    d) If generating multiple questions, formulate distinct concept-preserving problem variations across the diverse problem archetypes.
 3. Formulate 4 realistic options (A, B, C, D) and identify the correctOption.
-4. Provide a thorough, step-by-step mathematical derivation.
+4. Provide a thorough, step-by-step mathematical derivation breaking down the problem conceptually, algebraically, and highlighting pitfalls.
 5. Tag each question with "modificationApplied": "Slight modification: [rephrased / inverted variable / added intermediate step]".`,
 
     hard: `DIFFICULTY: HARD (GMAT-LEVEL TRANSFORMATION WITH RESEARCHED COMPETITIVE EXAM IDEAS)
@@ -789,7 +816,7 @@ const generateMCQsFromExtracted = async ({
 ${gmatResearchContext || 'Apply GMAT 700-level multi-constraint modeling and Data Sufficiency formats.'}
 4. Options can be 4 or 5 choices (A-D or A-E standard GMAT format).
 5. Accurately identify the correctOption.
-6. Provide an in-depth, rigorous GMAT-style solution and logical proof.
+6. Provide an in-depth, rigorous GMAT-style solution broken down into: Problem Breakdown & Given Data, Governing Formula, Step-by-Step Derivation, Conclusion, and Trap/Pitfall Alert.
 7. Tag each question with "modificationApplied": "GMAT-level transformation: [GMAT Problem Solving / Data Sufficiency archetype with trap structure]".`,
   };
 
@@ -823,7 +850,23 @@ QUANTITY & QUALITY MANDATE:
 - Generate EXACTLY ${countToFetch} questions (numbered ${startIdx} to ${startIdx + countToFetch - 1}).
 - Use clean LaTeX for all mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 25%).
 - When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\$).
-- CRITICAL: In the "explanation" field, output ONLY the clean, final step-by-step mathematical proof. NEVER include internal draft thoughts, self-corrections, or phrases like "Wait, let's recalculate", "Let's check", "No, let's look at", or "Let's adjust numbers". State the solution directly, cleanly, and decisively.
+- CRITICAL EXPLANATION MANDATE (HIGHLY REFINED, DETAILED PEDAGOGICAL BREAKDOWN):
+  The "explanation" field must NEVER be an unformatted or rushed blob of text.
+  Break every solution down into these exact structured sections:
+  ### Problem Breakdown & Given Data
+  - Clearly identify what is given, baseline investments, damaged/unsellable portions, or constraints.
+  ### Core Formula & Strategy
+  - State the primary economic/algebraic formula or theorem governing the problem.
+  ### Step-by-Step Derivation
+  - Step 1: Compute the initial base investment/quantity.
+  - Step 2: Formulate the target condition (e.g. revenue required for overall profit).
+  - Step 3: Set up the algebraic equation and solve step-by-step with clean KaTeX.
+  - Step 4: Calculate the final numerical result.
+  ### Conclusion
+  - State the definitive calculated value and explicitly confirm which Option it matches.
+  ### Trap & Common Mistake Alert
+  - Explain the deceptive trap that distractors are built upon and why students pick the wrong option.
+- NEVER include internal draft thoughts or phrases like "Wait, let's check" or "No, let's adjust".
 
 SOURCE QUESTIONS FROM DOCUMENT (DIVERSE CASES):
 ---

@@ -28,7 +28,7 @@ exports.extractQuestions = async (req, res) => {
       const filePath = req.file.path;
       originalName = req.file.originalname;
       filename = req.file.filename;
-      console.log(`[AI Controller] Extracting questions from PDF: ${originalName} (${req.file.size} bytes)`);
+      console.log(`[AI Controller] Extracting questions from document: ${originalName} (${req.file.size} bytes)`);
 
       const pdfData = await extractTextFromPDF(filePath);
       text = pdfData.text;
@@ -43,7 +43,7 @@ exports.extractQuestions = async (req, res) => {
       } else {
         return res.status(400).json({
           success: false,
-          message: 'Please upload a PDF document or paste question text directly.',
+          message: 'Please upload a PDF or Word (.docx) document or paste question text directly.',
         });
       }
     }
@@ -51,7 +51,7 @@ exports.extractQuestions = async (req, res) => {
     if (!req.file && (!text || text.trim().length === 0)) {
       return res.status(400).json({
         success: false,
-        message: 'Please upload a PDF document or paste question text directly.',
+        message: 'Please upload a PDF or Word (.docx) document or paste question text directly.',
       });
     }
 
@@ -676,7 +676,7 @@ exports.studentGeneratePractice = async (req, res) => {
       } else {
         return res.status(400).json({
           success: false,
-          message: 'Please upload a PDF document or paste your study material/questions.',
+          message: 'Please upload a PDF or Word (.docx) document or paste your study material/questions.',
         });
       }
     }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import MathRenderer from '../components/MathRenderer';
+import ExplanationRenderer from '../components/ExplanationRenderer';
 import {
   Upload,
   FileText,
@@ -61,14 +62,23 @@ export const StudentPracticeAi = () => {
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
     if (selected) {
-      if (selected.type !== 'application/pdf') {
-        setError('Please select a valid PDF file.');
+      const ext = selected.name.toLowerCase();
+      const isValid =
+        selected.type === 'application/pdf' ||
+        selected.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        selected.type === 'application/msword' ||
+        ext.endsWith('.pdf') ||
+        ext.endsWith('.docx') ||
+        ext.endsWith('.doc');
+
+      if (!isValid) {
+        setError('Please select a valid PDF or Word (.docx) document.');
         return;
       }
       setFile(selected);
       setError('');
       if (!title) {
-        const cleanName = selected.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+        const cleanName = selected.name.replace(/\.(pdf|docx|doc)$/i, '').replace(/[-_]/g, ' ');
         setTitle(`${cleanName} - Practice Set`);
       }
     }
@@ -79,7 +89,7 @@ export const StudentPracticeAi = () => {
     setError('');
 
     if (inputMode === 'pdf' && !file) {
-      setError('Please choose a PDF document containing your math problems or notes.');
+      setError('Please choose a PDF or Word (.docx) document containing your math problems or notes.');
       return;
     }
     if (inputMode === 'paste' && (!pastedText || pastedText.trim().length < 20)) {
@@ -314,7 +324,7 @@ export const StudentPracticeAi = () => {
             {inputMode === 'pdf' ? (
               <div style={{ marginBottom: '2rem' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  Upload Source PDF (Chapter, Past Paper, or Worksheet)
+                  Upload Source Document (PDF or Word DOCX)
                 </label>
                 <div
                   style={{
@@ -331,7 +341,7 @@ export const StudentPracticeAi = () => {
                   <input
                     id="student-pdf-upload"
                     type="file"
-                    accept=".pdf,application/pdf"
+                    accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
                     onChange={handleFileChange}
                     style={{ display: 'none' }}
                   />
@@ -342,16 +352,16 @@ export const StudentPracticeAi = () => {
                         Selected: {file.name}
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                        {(file.size / 1024 / 1024).toFixed(2)} MB • Click to replace file
+                        {(file.size / 1024 / 1024).toFixed(2)} MB • Click to replace document
                       </div>
                     </div>
                   ) : (
                     <div>
                       <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '1rem', marginBottom: '6px' }}>
-                        Click to select PDF or drag and drop here
+                        Click to select PDF or Word DOCX document or drag and drop here
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                        Supports chapter PDFs, IBA / GMAT prep questions, math problem sets
+                        Supports chapter PDFs, Word (.docx) notes, IBA / GMAT prep questions
                       </div>
                     </div>
                   )}
@@ -673,21 +683,13 @@ export const StudentPracticeAi = () => {
                   })}
                 </div>
 
-                {/* Explanation */}
+                {/* Detailed Pedagogical Explanation */}
                 {q.explanation && (
-                  <div style={{
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    background: 'rgba(255, 255, 255, 0.03)',
-                    borderLeft: '3px solid #818cf8',
-                    fontSize: '0.85rem',
-                    color: 'var(--text-muted)',
-                  }}>
-                    <strong style={{ color: 'var(--text-main)', display: 'block', marginBottom: '4px' }}>
-                      Derivation / Solution:
-                    </strong>
-                    <MathRenderer text={q.explanation} />
-                  </div>
+                  <ExplanationRenderer
+                    explanation={q.explanation}
+                    correctOption={q.correctOption}
+                    defaultExpanded={true}
+                  />
                 )}
               </div>
             ))}

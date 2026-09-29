@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import MathRenderer from '../components/MathRenderer';
+import ExplanationRenderer from '../components/ExplanationRenderer';
 import confetti from 'canvas-confetti';
 import {
   Award,
@@ -325,20 +326,10 @@ export const ExamResults = () => {
 
                 {/* Mathematical Step-by-Step Explanation */}
                 {q.explanation && (
-                  <div style={{
-                    background: 'rgba(99, 102, 241, 0.07)',
-                    border: '1px solid rgba(99, 102, 241, 0.2)',
-                    borderRadius: '8px',
-                    padding: '12px 16px',
-                    fontSize: '0.9rem',
-                    color: '#e2e8f0',
-                    lineHeight: 1.6,
-                  }}>
-                    <strong style={{ color: '#818cf8', display: 'block', marginBottom: '4px' }}>
-                      Mathematical Derivation & Explanation:
-                    </strong>
-                    <MathRenderer text={q.explanation} />
-                  </div>
+                  <ExplanationRenderer
+                    explanation={q.explanation}
+                    correctOption={q.correctOption}
+                  />
                 )}
 
               </div>
