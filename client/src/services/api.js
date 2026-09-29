@@ -229,6 +229,26 @@ export const api = {
     return data;
   },
 
+  async getVerifiedQuestions() {
+    const res = await fetch(`${BASE_URL}/api/ai/verified-questions`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch verified questions');
+    return data;
+  },
+
+  async deployVerifiedExam(payload = {}) {
+    const res = await fetch(`${BASE_URL}/api/ai/deploy-verified-exam`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to deploy verified exam');
+    return data;
+  },
+
   // Admin
   async getAdminStats() {
     const res = await fetch(`${BASE_URL}/api/admin/stats`, {

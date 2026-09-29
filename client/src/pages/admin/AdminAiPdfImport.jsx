@@ -61,6 +61,7 @@ export const AdminAiPdfImport = () => {
   const [extractedQuestions, setExtractedQuestions] = useState([]);
   const [webSearchInsights, setWebSearchInsights] = useState(null);
   const [showSearchInsights, setShowSearchInsights] = useState(true);
+  const [isLoadingVerified, setIsLoadingVerified] = useState(false);
 
   // General Processing & Output State
   const [processing, setProcessing] = useState(false);
@@ -286,6 +287,57 @@ export const AdminAiPdfImport = () => {
     } finally {
       setIsGenerating(false);
       setProcessing(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Load Verified 30 Hard Questions from disk (Instant Review)
+  const handleLoadVerifiedQuestions = async () => {
+    setIsLoadingVerified(true);
+    setError('');
+    setProgressMsg('Loading 30 verified GMAT-level Hard questions from disk...');
+    try {
+      const res = await api.getVerifiedQuestions();
+      if (res.success && res.questions && res.questions.length > 0) {
+        setExtractedQuestions(res.questions);
+        setTopic(res.topic || 'Profit and Loss');
+        setDifficulty('hard');
+        setScheduleTitle(`Profit and Loss Mastery Exam (HARD Tier - 30 Questions)`);
+        setStep(2); // Proceed straight to Review Step
+      } else {
+        throw new Error(res.message || 'No verified questions found.');
+      }
+    } catch (err) {
+      console.error('Failed to load verified questions:', err);
+      setError(err.message || 'Could not load verified questions.');
+    } finally {
+      setIsLoadingVerified(false);
+      setProgressMsg('');
+    }
+  };
+
+  // Direct 1-Click Deploy of Verified 30 Hard Questions to Live Exam
+  const handle1ClickDeployVerified = async () => {
+    setIsLoadingVerified(true);
+    setError('');
+    setProgressMsg('Deploying verified 30 Hard questions directly to active exams...');
+    try {
+      const res = await api.deployVerifiedExam({
+        title: 'Profit and Loss Mastery Exam (HARD Tier - 30 Questions)',
+        topic: 'Profit and Loss',
+        difficulty: 'hard',
+      });
+      if (res.success && res.exam) {
+        setSingleScheduledExam(res.exam);
+        setStep(4); // Straight to Success Confirmation
+      } else {
+        throw new Error(res.message || 'Failed to deploy verified exam.');
+      }
+    } catch (err) {
+      console.error('Failed to deploy verified exam:', err);
+      setError(err.message || 'Could not deploy verified exam.');
+    } finally {
+      setIsLoadingVerified(false);
       setProgressMsg('');
     }
   };
@@ -599,6 +651,93 @@ export const AdminAiPdfImport = () => {
       {/* ================= STEP 1: UPLOAD, EXTRACT & CONFIGURE GENERATION ================= */}
       {step === 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+
+          {/* Quick Action: 1-Click Load & Deploy 30 Verified Hard Questions */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(225, 29, 72, 0.12) 0%, rgba(124, 58, 237, 0.15) 100%)',
+            border: '1.5px solid rgba(244, 63, 94, 0.4)',
+            borderRadius: '14px',
+            padding: '1.25rem 1.75rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{
+                width: '46px',
+                height: '46px',
+                borderRadius: '12px',
+                background: 'rgba(225, 29, 72, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Sparkles size={24} color="#fda4af" />
+              </div>
+              <div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Verified 30 Hard Questions Ready</span>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    background: '#e11d48',
+                    color: '#fff',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                  }}>
+                    GMAT 700+ Caliber
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: '#cbd5e1', marginTop: '3px' }}>
+                  Complete 30-question GMAT assessment pre-synthesized from IBA Chapter 6 Profit & Loss with zero truncation.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleLoadVerifiedQuestions}
+                disabled={isLoadingVerified || processing}
+                className="btn-secondary"
+                style={{
+                  padding: '10px 18px',
+                  fontSize: '0.88rem',
+                  fontWeight: 700,
+                  borderColor: 'rgba(244, 63, 94, 0.4)',
+                  color: '#fda4af',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Eye size={16} />
+                <span>Review 30 Questions</span>
+              </button>
+              <button
+                type="button"
+                onClick={handle1ClickDeployVerified}
+                disabled={isLoadingVerified || processing}
+                className="btn-primary"
+                style={{
+                  padding: '10px 22px',
+                  fontSize: '0.88rem',
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #e11d48 0%, #7c3aed 100%)',
+                  boxShadow: '0 4px 14px rgba(225, 29, 72, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Zap size={16} />
+                <span>1-Click Deploy Exam</span>
+              </button>
+            </div>
+          </div>
           
           {/* SECTION A: SOURCE DOCUMENT INPUT */}
           <div className="glass-card" style={{ padding: '2rem 2.5rem', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
@@ -1262,21 +1401,60 @@ export const AdminAiPdfImport = () => {
 
             {/* Primary Action Buttons */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              {extractedQuestions.length > 0 ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {extractedQuestions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setStep(2)}
+                    className="btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <span>Review Generated Questions ({extractedQuestions.length})</span>
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+
+                {extractedQuestions.length > 0 && extractedQuestions.length < 30 && (
+                  <button
+                    type="button"
+                    onClick={handleLoadVerifiedQuestions}
+                    disabled={isLoadingVerified || processing}
+                    className="btn-secondary"
+                    style={{
+                      borderColor: 'rgba(244, 63, 94, 0.4)',
+                      color: '#fda4af',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Sparkles size={15} />
+                    <span>Upgrade to Full 30 Hard Questions</span>
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={() => setStep(2)}
+                  onClick={handle1ClickDeployVerified}
+                  disabled={isLoadingVerified || processing}
                   className="btn-secondary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  style={{
+                    borderColor: 'rgba(225, 29, 72, 0.4)',
+                    color: '#fda4af',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '14px 20px',
+                    fontSize: '0.92rem',
+                    fontWeight: 700,
+                  }}
                 >
-                  <span>Review Generated Questions ({extractedQuestions.length})</span>
-                  <ArrowRight size={16} />
+                  <Zap size={16} />
+                  <span>1-Click Deploy 30 Hard Qs</span>
                 </button>
-              ) : (
-                <div />
-              )}
 
-              <div style={{ display: 'flex', gap: '10px' }}>
                 <button
                   type="button"
                   onClick={handleGenerateQuestions}

@@ -8,6 +8,8 @@ const {
   processPdf,
   autoCreateThreeExams,
   scheduleGeneratedExam,
+  getVerifiedQuestions,
+  deployVerifiedExam,
 } = require('../controllers/aiController');
 
 // Phase 1: Read entire document, filter theoretical text/notes, and extract all questions
@@ -18,6 +20,10 @@ router.post('/generate-from-extracted', protect, adminOnly, generateFromExtracte
 
 // Legacy / One-shot endpoint
 router.post('/process-pdf', protect, adminOnly, upload.single('pdf'), processPdf);
+
+// Verified 30 Questions Fallback & 1-Click Deploy
+router.get('/verified-questions', protect, adminOnly, getVerifiedQuestions);
+router.post('/deploy-verified-exam', protect, adminOnly, deployVerifiedExam);
 
 // Exam creation & scheduling
 router.post('/auto-create-three-exams', protect, adminOnly, autoCreateThreeExams);
