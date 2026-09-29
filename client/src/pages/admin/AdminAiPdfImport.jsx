@@ -1027,7 +1027,7 @@ export const AdminAiPdfImport = () => {
                   Target Question Count:
                 </label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                  {[5, 10, 15, 20, 25, 30].map((num) => (
+                  {[10, 20, 30, 40, 50].map((num) => (
                     <button
                       key={num}
                       type="button"
