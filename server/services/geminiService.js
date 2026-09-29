@@ -133,23 +133,42 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
   const trySanitizedParse = (rawStr) => {
     let sanitized = '';
     let inStr = false;
-    let esc = false;
     for (let i = 0; i < rawStr.length; i++) {
       const c = rawStr[i];
       if (inStr) {
-        if (esc) {
-          esc = false;
-          if (/["\\/bfnrtu]/.test(c)) {
+        if (c === '"') {
+          let slashes = 0;
+          let p = i - 1;
+          while (p >= 0 && rawStr[p] === '\\') {
+            slashes++;
+            p--;
+          }
+          if (slashes % 2 === 0) inStr = false;
+          sanitized += c;
+        } else if (c === '\\') {
+          const next = rawStr[i + 1];
+          if (next === '"' || next === '\\' || next === '/') {
+            sanitized += c;
+          } else if (next === 'n' || next === 'r' || next === 't') {
+            const lookahead = rawStr.slice(i + 1, i + 6);
+            if (/^(text|time|tan|the|frac|term)/i.test(lookahead)) {
+              sanitized += '\\\\';
+            } else {
+              sanitized += c;
+            }
+          } else if (next === 'b' || next === 'f') {
+            const lookahead = rawStr.slice(i + 1, i + 6);
+            if (/^(frac)/i.test(lookahead)) {
+              sanitized += '\\\\';
+            } else {
+              sanitized += c;
+            }
+          } else if (next === 'u' && /^[0-9a-fA-F]{4}/.test(rawStr.slice(i + 2, i + 6))) {
             sanitized += c;
           } else {
-            sanitized += '\\\\' + c;
+            // Non-standard JSON escape (like \(, \), \%, \$, \i, \s)
+            sanitized += '\\\\';
           }
-        } else if (c === '\\') {
-          esc = true;
-          sanitized += c;
-        } else if (c === '"') {
-          inStr = false;
-          sanitized += c;
         } else if (c === '\n') {
           sanitized += '\\n';
         } else if (c === '\r') {
@@ -160,9 +179,7 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
           sanitized += c;
         }
       } else {
-        if (c === '"') {
-          inStr = true;
-        }
+        if (c === '"') inStr = true;
         sanitized += c;
       }
     }
