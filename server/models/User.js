@@ -37,7 +37,7 @@ const userSchema = new mongoose.Schema(
     },
     authProvider: {
       type: String,
-      enum: ['local', 'google', 'firebase-email'],
+      enum: ['local', 'google', 'facebook', 'firebase-email'],
       default: 'local',
     },
     firebaseUid: {

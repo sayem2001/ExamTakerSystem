@@ -39,12 +39,23 @@ const verifyFirebaseIdToken = async (idToken) => {
   }
 
   const fbUser = data.users[0];
+  const primaryProvider = fbUser.providerUserInfo?.[0]?.providerId || '';
+  let providerType = 'google';
+  if (primaryProvider.includes('facebook')) {
+    providerType = 'facebook';
+  } else if (primaryProvider.includes('password')) {
+    providerType = 'firebase-email';
+  } else if (primaryProvider.includes('google')) {
+    providerType = 'google';
+  }
+
   return {
     uid: fbUser.localId,
     email: (fbUser.email || '').toLowerCase().trim(),
     emailVerified: Boolean(fbUser.emailVerified),
     displayName: fbUser.displayName || '',
     photoUrl: fbUser.photoUrl || '',
+    providerType,
   };
 };
 
@@ -220,12 +231,12 @@ exports.login = async (req, res) => {
   }
 };
 
-// @desc    Firebase Auth (Google Sign-In or Verified Email Sign-In)
+// @desc    Firebase Auth (Google, Facebook, or Verified Email Sign-In)
 // @route   POST /api/auth/firebase
 // @access  Public (Protected via Cryptographic Firebase ID Token Verification)
 exports.firebaseAuth = async (req, res) => {
   try {
-    const { idToken, role = 'student', institution = '', adminOtp = '' } = req.body;
+    const { idToken, role = 'student', institution = '', adminOtp = '', authProvider = '' } = req.body;
 
     if (!idToken) {
       return res.status(400).json({ success: false, message: 'Firebase authentication token is required.' });
@@ -244,11 +255,14 @@ exports.firebaseAuth = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No email address associated with this verified account.' });
     }
 
+    // Determine auth provider (google, facebook, firebase-email)
+    const effectiveProvider = authProvider || verifiedUser.providerType || 'google';
+
     // Check if user already exists
     let user = await User.findOne({ email: normalizedEmail });
 
     if (user) {
-      // If user exists and email is verified by Google, update verified status
+      // If user exists and email is verified by Google/Facebook, update verified status
       if (verifiedUser.emailVerified) {
         user.isEmailVerified = true;
       }
@@ -258,9 +272,12 @@ exports.firebaseAuth = async (req, res) => {
       if (verifiedUser.uid && !user.firebaseUid) {
         user.firebaseUid = verifiedUser.uid;
       }
+      if (effectiveProvider && (!user.authProvider || user.authProvider === 'local')) {
+        user.authProvider = effectiveProvider;
+      }
       await user.save();
     } else {
-      // New user registration via Google or Firebase Email
+      // New user registration via Google, Facebook, or Firebase Email
       let assignedRole = 'student';
       const userCount = await User.countDocuments();
 
@@ -303,7 +320,7 @@ exports.firebaseAuth = async (req, res) => {
         avatar: verifiedUser.photoUrl || '',
         firebaseUid: verifiedUser.uid || '',
         isEmailVerified: Boolean(verifiedUser.emailVerified),
-        authProvider: verifiedUser.photoUrl || verifiedUser.emailVerified ? 'google' : 'firebase-email',
+        authProvider: effectiveProvider,
       });
     }
 

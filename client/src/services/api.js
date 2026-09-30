@@ -44,11 +44,11 @@ export const api = {
     return data;
   },
 
-  async firebaseAuth({ idToken, email, name, role = 'student', institution = '', adminOtp = '', avatar = '', isEmailVerified = false }) {
+  async firebaseAuth({ idToken, email, name, role = 'student', institution = '', adminOtp = '', avatar = '', isEmailVerified = false, authProvider = '' }) {
     const res = await fetch(`${BASE_URL}/api/auth/firebase`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken, email, name, role, institution, adminOtp, avatar, isEmailVerified }),
+      body: JSON.stringify({ idToken, email, name, role, institution, adminOtp, avatar, isEmailVerified, authProvider }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Firebase authentication failed');

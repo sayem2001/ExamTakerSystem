@@ -29,6 +29,7 @@ app.use(
   helmet({
     contentSecurityPolicy: false, // Allows KaTeX and inline styles for mathematical symbols
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   })
 );
 

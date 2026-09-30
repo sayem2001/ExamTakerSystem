@@ -36,6 +36,15 @@ const GoogleIcon = () => (
   </svg>
 );
 
+const FacebookIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+    <path
+      fill="#1877F2"
+      d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"
+    />
+  </svg>
+);
+
 export const Register = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -53,6 +62,7 @@ export const Register = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [facebookLoading, setFacebookLoading] = useState(false);
 
   // Email verification required view
   const [verificationPending, setVerificationPending] = useState(false);
@@ -60,7 +70,7 @@ export const Register = () => {
   const [resendStatus, setResendStatus] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
 
-  const { registerWithEmail, loginWithGoogle, resendVerificationEmail } = useAuth();
+  const { registerWithEmail, loginWithGoogle, loginWithFacebook, resendVerificationEmail } = useAuth();
   const navigate = useNavigate();
 
   const handleRequestOtp = async () => {
@@ -109,6 +119,35 @@ export const Register = () => {
       setError(err.message || 'Google registration was not completed.');
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleFacebookRegister = async () => {
+    setError('');
+    if (role === 'admin' && !adminOtp.trim()) {
+      setError('Admin Authorization OTP required. Request OTP above and enter the 6-digit code received from sayemmd035@gmail.com before registering with Facebook.');
+      return;
+    }
+
+    setFacebookLoading(true);
+    try {
+      const user = await loginWithFacebook({
+        name: name.trim(),
+        role,
+        institution: institution.trim(),
+        adminOtp: adminOtp.trim(),
+      });
+
+      if (user.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      console.error('Facebook registration failed:', err);
+      setError(err.message || 'Facebook registration was not completed.');
+    } finally {
+      setFacebookLoading(false);
     }
   };
 
@@ -304,7 +343,7 @@ export const Register = () => {
             Create an Account
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
-            Register with Google (Instant Verification) or via Email
+            Register with Google, Facebook, or via Email
           </p>
         </div>
 
@@ -326,43 +365,84 @@ export const Register = () => {
           </div>
         )}
 
-        {/* GOOGLE QUICK REGISTRATION */}
-        <button
-          type="button"
-          onClick={handleGoogleRegister}
-          disabled={googleLoading || loading}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            padding: '12px 18px',
-            borderRadius: '10px',
-            background: 'rgba(255, 255, 255, 0.06)',
-            border: '1.5px solid rgba(255, 255, 255, 0.15)',
-            color: 'var(--text-main, #f8fafc)',
-            fontSize: '0.95rem',
-            fontWeight: 600,
-            cursor: googleLoading ? 'wait' : 'pointer',
-            transition: 'all 0.2s ease',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-            marginBottom: '1.5rem',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
-            e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
-            e.currentTarget.style.transform = 'translateY(-1px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
-            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <GoogleIcon />
-          <span>{googleLoading ? 'Verifying with Google...' : 'Register with Google (Instant Verified User)'}</span>
-        </button>
+        {/* SOCIAL QUICK REGISTRATION */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+          {/* GOOGLE QUICK REGISTRATION */}
+          <button
+            type="button"
+            id="google-register-btn"
+            onClick={handleGoogleRegister}
+            disabled={googleLoading || facebookLoading || loading}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: '11px 18px',
+              borderRadius: '10px',
+              background: 'rgba(255, 255, 255, 0.06)',
+              border: '1.5px solid rgba(255, 255, 255, 0.15)',
+              color: 'var(--text-main, #f8fafc)',
+              fontSize: '0.92rem',
+              fontWeight: 600,
+              cursor: googleLoading ? 'wait' : 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+              e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <GoogleIcon />
+            <span>{googleLoading ? 'Verifying with Google...' : 'Register with Google'}</span>
+          </button>
+
+          {/* FACEBOOK QUICK REGISTRATION */}
+          <button
+            type="button"
+            id="facebook-register-btn"
+            onClick={handleFacebookRegister}
+            disabled={googleLoading || facebookLoading || loading}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: '11px 18px',
+              borderRadius: '10px',
+              background: 'rgba(24, 119, 242, 0.12)',
+              border: '1.5px solid rgba(24, 119, 242, 0.35)',
+              color: 'var(--text-main, #f8fafc)',
+              fontSize: '0.92rem',
+              fontWeight: 600,
+              cursor: facebookLoading ? 'wait' : 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(24, 119, 242, 0.22)';
+              e.currentTarget.style.borderColor = '#1877F2';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(24, 119, 242, 0.12)';
+              e.currentTarget.style.borderColor = 'rgba(24, 119, 242, 0.35)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <FacebookIcon />
+            <span>{facebookLoading ? 'Verifying with Facebook...' : 'Register with Facebook'}</span>
+          </button>
+        </div>
 
         {/* DIVIDER */}
         <div style={{

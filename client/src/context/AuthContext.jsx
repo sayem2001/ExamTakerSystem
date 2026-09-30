@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import {
   auth,
   googleProvider,
+  facebookProvider,
   signInWithPopup,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -11,6 +12,47 @@ import {
 } from '../firebase';
 
 const AuthContext = createContext(null);
+
+/**
+ * Diagnostic helper to format OAuth and Firebase Authentication errors into
+ * clear, actionable instructions for the user.
+ */
+const formatOAuthError = (err, providerName = 'OAuth') => {
+  if (!err) return `${providerName} authentication failed.`;
+
+  const code = err.code || '';
+  const message = err.message || '';
+
+  if (
+    code === 'auth/operation-not-allowed' ||
+    message.includes('operation-not-allowed') ||
+    message.includes('OPERATION_NOT_ALLOWED')
+  ) {
+    return `${providerName} Sign-In is not enabled yet in your Firebase project. Please go to Firebase Console -> Authentication -> Sign-in method and enable ${providerName}.`;
+  }
+  if (code === 'auth/popup-closed-by-user') {
+    return `${providerName} sign-in window was closed before completing. If you did not close it, please ensure your browser allows pop-ups and third-party storage for this domain.`;
+  }
+  if (code === 'auth/popup-blocked') {
+    const origin = typeof window !== 'undefined' ? (window.location.host || 'this site') : 'this site';
+    return `Sign-in pop-up was blocked by your browser. Please allow pop-ups for ${origin} to continue.`;
+  }
+  if (code === 'auth/unauthorized-domain' || message.includes('unauthorized-domain')) {
+    const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+    return `This domain (${currentDomain}) is not authorized in Firebase Console -> Authentication -> Settings -> Authorized domains. Please add '${currentDomain}' to the list.`;
+  }
+  if (code === 'auth/account-exists-with-different-credential') {
+    return 'An account already exists with this email using a different sign-in method. Please sign in using your existing method.';
+  }
+  if (code === 'auth/cancelled-popup-request') {
+    return 'Another sign-in pop-up is already opening. Please wait a moment and try again.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network connection error while connecting to authentication service. Please check your internet connection.';
+  }
+
+  return message || `${providerName} authentication failed.`;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -54,6 +96,7 @@ export const AuthProvider = ({ children }) => {
         role: metadata.role || 'student',
         institution: metadata.institution || '',
         adminOtp: metadata.adminOtp || '',
+        authProvider: 'google',
         isEmailVerified: true, // Google verifies real email addresses
       });
 
@@ -66,20 +109,48 @@ export const AuthProvider = ({ children }) => {
       throw new Error(res.message || 'Google authentication failed');
     } catch (err) {
       console.error('Google Auth error:', err);
-      // Friendly message for popup close
-      if (err.code === 'auth/popup-closed-by-user') {
-        throw new Error('Google sign-in was cancelled. Please try again.');
+      throw new Error(formatOAuthError(err, 'Google'));
+    }
+  };
+
+  /**
+   * Facebook Sign-in / Registration
+   */
+  const loginWithFacebook = async (metadata = {}) => {
+    try {
+      const result = await signInWithPopup(auth, facebookProvider);
+      const fbUser = result.user;
+      const idToken = await fbUser.getIdToken();
+
+      const res = await api.firebaseAuth({
+        idToken,
+        email: fbUser.email,
+        name: fbUser.displayName || metadata.name || '',
+        avatar: fbUser.photoURL || '',
+        role: metadata.role || 'student',
+        institution: metadata.institution || '',
+        adminOtp: metadata.adminOtp || '',
+        authProvider: 'facebook',
+        isEmailVerified: true, // OAuth providers verify email ownership
+      });
+
+      if (res.success && res.token) {
+        localStorage.setItem('apex_token', res.token);
+        setToken(res.token);
+        setUser(res.user);
+        return res.user;
       }
-      if (err.code === 'auth/popup-blocked') {
-        throw new Error('Sign-in popup was blocked by browser. Please allow popups for this site.');
-      }
-      throw err;
+      throw new Error(res.message || 'Facebook authentication failed');
+    } catch (err) {
+      console.error('Facebook Auth error:', err);
+      throw new Error(formatOAuthError(err, 'Facebook'));
     }
   };
 
   /**
    * Register with Email & Password
-   * Automatically dispatches Firebase Email Verification link
+   * Automatically dispatches Firebase Email Verification link when Firebase is enabled,
+   * with graceful fallback to backend DB registration if Firebase email provider is inactive.
    */
   const registerWithEmail = async (name, email, password, role = 'student', institution = '', adminOtp = '') => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -110,6 +181,25 @@ export const AuthProvider = ({ children }) => {
       };
     } catch (err) {
       console.error('Register with email error:', err);
+
+      // Fallback: If Firebase Email/Password provider is disabled in Firebase Console (auth/operation-not-allowed),
+      // smoothly register in the backend database so the user is never stuck
+      if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
+        console.warn('Firebase Email provider disabled in console. Registering directly in backend DB.');
+        const res = await api.register(name, trimmedEmail, password, role, institution, adminOtp);
+        if (res.success && res.token) {
+          localStorage.setItem('apex_token', res.token);
+          setToken(res.token);
+          setUser(res.user);
+          return {
+            needsEmailVerification: false,
+            user: res.user,
+            message: 'Registered successfully!',
+          };
+        }
+        throw new Error(res.message || 'Registration failed');
+      }
+
       if (err.code === 'auth/email-already-in-use') {
         throw new Error('An account with this email already exists. Please log in instead.');
       }
@@ -125,7 +215,8 @@ export const AuthProvider = ({ children }) => {
 
   /**
    * Login with Email & Password
-   * Enforces that the user has verified their email address!
+   * Enforces that the user has verified their email address when using Firebase,
+   * or falls back to backend DB if Firebase email is inactive.
    */
   const loginWithEmail = async (email, password) => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -168,8 +259,14 @@ export const AuthProvider = ({ children }) => {
         throw err;
       }
 
-      // If user not in Firebase (e.g. legacy direct DB account), try legacy backend login
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || !err.code) {
+      // If Firebase Email/Password is disabled in console (auth/operation-not-allowed),
+      // or user is a direct DB account, try backend login
+      if (
+        err.code === 'auth/operation-not-allowed' ||
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/invalid-credential' ||
+        !err.code
+      ) {
         try {
           const res = await api.login(trimmedEmail, password);
           if (res.success && res.token) {
@@ -239,6 +336,7 @@ export const AuthProvider = ({ children }) => {
         login,
         loginWithEmail,
         loginWithGoogle,
+        loginWithFacebook,
         register,
         registerWithEmail,
         resendVerificationEmail,

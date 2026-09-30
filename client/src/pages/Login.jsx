@@ -24,19 +24,29 @@ const GoogleIcon = () => (
   </svg>
 );
 
+const FacebookIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+    <path
+      fill="#1877F2"
+      d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"
+    />
+  </svg>
+);
+
 export const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [facebookLoading, setFacebookLoading] = useState(false);
 
   // Email verification state
   const [emailNeedsVerification, setEmailNeedsVerification] = useState(false);
   const [resendStatus, setResendStatus] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
 
-  const { loginWithGoogle, loginWithEmail, resendVerificationEmail } = useAuth();
+  const { loginWithGoogle, loginWithFacebook, loginWithEmail, resendVerificationEmail } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -61,6 +71,27 @@ export const Login = () => {
       setError(err.message || 'Google authentication was not completed.');
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleFacebookSignIn = async () => {
+    setError('');
+    setEmailNeedsVerification(false);
+    setResendStatus('');
+    setFacebookLoading(true);
+
+    try {
+      const loggedInUser = await loginWithFacebook();
+      if (loggedInUser.role === 'admin' && from === '/dashboard') {
+        navigate('/admin');
+      } else {
+        navigate(from, { replace: true });
+      }
+    } catch (err) {
+      console.error('Facebook Sign-in failed:', err);
+      setError(err.message || 'Facebook authentication was not completed.');
+    } finally {
+      setFacebookLoading(false);
     }
   };
 
@@ -157,47 +188,88 @@ export const Login = () => {
             Welcome Back
           </h2>
           <p style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '0.9rem', marginTop: '4px' }}>
-            Sign in with Google or your verified email
+            Sign in with Google, Facebook, or your verified email
           </p>
         </div>
 
-        {/* GOOGLE SIGN IN BUTTON */}
-        <button
-          type="button"
-          onClick={handleGoogleSignIn}
-          disabled={googleLoading || loading}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            padding: '12px 18px',
-            borderRadius: '10px',
-            background: 'rgba(255, 255, 255, 0.06)',
-            border: '1.5px solid rgba(255, 255, 255, 0.15)',
-            color: 'var(--text-main, #f8fafc)',
-            fontSize: '0.95rem',
-            fontWeight: 600,
-            cursor: googleLoading ? 'wait' : 'pointer',
-            transition: 'all 0.2s ease',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-            marginBottom: '1.5rem',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
-            e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
-            e.currentTarget.style.transform = 'translateY(-1px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
-            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <GoogleIcon />
-          <span>{googleLoading ? 'Connecting to Google...' : 'Continue with Google (Verified User)'}</span>
-        </button>
+        {/* SOCIAL AUTH PROVIDERS */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+          {/* GOOGLE SIGN IN BUTTON */}
+          <button
+            type="button"
+            id="google-signin-btn"
+            onClick={handleGoogleSignIn}
+            disabled={googleLoading || facebookLoading || loading}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: '11px 18px',
+              borderRadius: '10px',
+              background: 'rgba(255, 255, 255, 0.06)',
+              border: '1.5px solid rgba(255, 255, 255, 0.15)',
+              color: 'var(--text-main, #f8fafc)',
+              fontSize: '0.92rem',
+              fontWeight: 600,
+              cursor: googleLoading ? 'wait' : 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+              e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <GoogleIcon />
+            <span>{googleLoading ? 'Connecting to Google...' : 'Continue with Google'}</span>
+          </button>
+
+          {/* FACEBOOK SIGN IN BUTTON */}
+          <button
+            type="button"
+            id="facebook-signin-btn"
+            onClick={handleFacebookSignIn}
+            disabled={googleLoading || facebookLoading || loading}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: '11px 18px',
+              borderRadius: '10px',
+              background: 'rgba(24, 119, 242, 0.12)',
+              border: '1.5px solid rgba(24, 119, 242, 0.35)',
+              color: 'var(--text-main, #f8fafc)',
+              fontSize: '0.92rem',
+              fontWeight: 600,
+              cursor: facebookLoading ? 'wait' : 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(24, 119, 242, 0.22)';
+              e.currentTarget.style.borderColor = '#1877F2';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(24, 119, 242, 0.12)';
+              e.currentTarget.style.borderColor = 'rgba(24, 119, 242, 0.35)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <FacebookIcon />
+            <span>{facebookLoading ? 'Connecting to Facebook...' : 'Continue with Facebook'}</span>
+          </button>
+        </div>
 
         {/* DIVIDER */}
         <div style={{
