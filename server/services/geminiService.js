@@ -528,6 +528,8 @@ const extractAllQuestionsFromDocument = async ({
     throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings.');
   }
 
+  const genAI = new GoogleGenerativeAI(activeKey);
+
   const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
     ? (subjectType || '').toLowerCase()
     : 'math';
@@ -537,12 +539,25 @@ const extractAllQuestionsFromDocument = async ({
   if (normalizedSubjectType === 'universal') defaultFallbackTopic = 'General Studies & Academic Topics';
   const detectedTopic = targetTopic || defaultFallbackTopic;
 
+  let documentText = (pdfText || '').trim();
+  if (!documentText && pdfPath) {
+    try {
+      const pdfRes = await extractTextFromPDF(pdfPath);
+      if (pdfRes && pdfRes.text) {
+        documentText = pdfRes.text.trim();
+        console.log(`[Gemini Engine] Extracted ${documentText.length} characters from PDF file.`);
+      }
+    } catch (pdfErr) {
+      console.warn('[Gemini Engine] Could not extract text from PDF file directly:', pdfErr.message);
+    }
+  }
+
   console.log(`[Phase 1] Initiating full document extraction for [${normalizedSubjectType.toUpperCase()}] topic: "${detectedTopic}"...`);
 
   // Step 1: Algorithmic extraction across all sections and answer key tables
   let algoQuestions = [];
-  if (pdfText && pdfText.trim().length > 0) {
-    algoQuestions = extractStructuredQuestionsFromText(pdfText, detectedTopic);
+  if (documentText && documentText.length > 0) {
+    algoQuestions = extractStructuredQuestionsFromText(documentText, detectedTopic);
     console.log(
       `[Heuristic Parser] Extracted ${algoQuestions.length} structured past paper/practice questions with authentic answer keys directly from document text.`
     );
@@ -553,8 +568,8 @@ const extractAllQuestionsFromDocument = async ({
   const CHUNK_SIZE = 18000;
   const textChunks = [];
 
-  if (pdfText && pdfText.trim().length > 0) {
-    const fullText = pdfText.trim();
+  if (documentText && documentText.length > 0) {
+    const fullText = documentText;
     if (fullText.length <= 22000) {
       textChunks.push(fullText);
     } else {
