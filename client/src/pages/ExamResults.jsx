@@ -85,19 +85,19 @@ export const ExamResults = () => {
   });
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '2rem auto 5rem', padding: '0 1.5rem' }}>
+    <div className="page-container" style={{ maxWidth: '1100px', margin: '1.5rem auto 4rem', padding: '0 1rem', width: '100%', boxSizing: 'border-box' }}>
       
       {/* SCORE CARD HEADER */}
       <div className="glass-card" style={{
-        padding: '2.5rem',
-        marginBottom: '2.5rem',
+        padding: 'clamp(1.25rem, 3.5vw, 2.5rem)',
+        marginBottom: '2rem',
         background: 'linear-gradient(135deg, rgba(24, 33, 56, 0.95) 0%, rgba(15, 20, 34, 0.95) 100%)',
         border: '1px solid rgba(99, 102, 241, 0.3)',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
       }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1.5rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1.25rem', marginBottom: '1.5rem' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
               <span className={`badge badge-${exam.difficulty}`}>
                 {exam.difficulty} Level
               </span>
@@ -105,11 +105,11 @@ export const ExamResults = () => {
                 {exam.examCode}
               </span>
             </div>
-            <h1 style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc' }}>
+            <h1 style={{ fontSize: 'clamp(1.35rem, 3.5vw, 2.25rem)', fontWeight: 800, color: '#f8fafc', lineHeight: 1.25 }}>
               {exam.title} — Official Result
             </h1>
-            <p style={{ color: '#94a3b8', fontSize: '0.95rem' }}>
-              Completed by <strong>{attempt.user?.name}</strong> • Submitted on {new Date(attempt.submittedAt).toLocaleDateString()} at {new Date(attempt.submittedAt).toLocaleTimeString()}
+            <p style={{ color: '#94a3b8', fontSize: '0.88rem', marginTop: '4px' }}>
+              Completed by <strong>{attempt.user?.name}</strong> • Submitted on {new Date(attempt.submittedAt).toLocaleDateString()}
             </p>
           </div>
 
@@ -118,14 +118,15 @@ export const ExamResults = () => {
             to={`/leaderboard/exam/${exam._id}`}
             className="btn-primary"
             style={{
-              padding: '12px 24px',
-              fontSize: '0.95rem',
+              padding: '10px 20px',
+              fontSize: '0.9rem',
               background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
               borderColor: '#fbbf24',
               color: '#ffffff',
+              minHeight: '44px',
             }}
           >
-            <Award size={18} />
+            <Award size={17} />
             <span>View Live Leaderboard</span>
           </Link>
         </div>
@@ -133,49 +134,49 @@ export const ExamResults = () => {
         {/* METRICS GRID */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '12px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+          gap: '10px',
         }}>
           {/* Final Score */}
-          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Score</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#6366f1', marginTop: '4px' }}>
-              {attempt.score} <span style={{ fontSize: '1rem', color: '#64748b' }}>/ {attempt.maxScore}</span>
+          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '14px' }}>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Score</div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#6366f1', marginTop: '2px' }}>
+              {attempt.score} <span style={{ fontSize: '0.88rem', color: '#64748b' }}>/ {attempt.maxScore}</span>
             </div>
-            <div style={{ fontSize: '0.85rem', color: attempt.passed ? '#34d399' : '#f87171', fontWeight: 600 }}>
+            <div style={{ fontSize: '0.8rem', color: attempt.passed ? '#34d399' : '#f87171', fontWeight: 600 }}>
               {attempt.passed ? 'Passed Assessment' : 'Needs Review'}
             </div>
           </div>
 
           {/* Current Rank */}
-          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Your Rank</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#fbbf24', marginTop: '4px' }}>
-              #{stats?.rank || 1} <span style={{ fontSize: '0.9rem', color: '#64748b' }}>of {stats?.totalParticipants || 1}</span>
+          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '14px' }}>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Your Rank</div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fbbf24', marginTop: '2px' }}>
+              #{stats?.rank || 1} <span style={{ fontSize: '0.85rem', color: '#64748b' }}>of {stats?.totalParticipants || 1}</span>
             </div>
-            <div style={{ fontSize: '0.85rem', color: '#38bdf8', fontWeight: 600 }}>
+            <div style={{ fontSize: '0.8rem', color: '#38bdf8', fontWeight: 600 }}>
               Top {100 - (stats?.percentile || 0)}% Percentile
             </div>
           </div>
 
           {/* Accuracy */}
-          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Accuracy Rate</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '14px' }}>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Accuracy Rate</div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#10b981', marginTop: '2px' }}>
               {stats?.accuracyPercentage || 0}%
             </div>
-            <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
               {attempt.correctCount} Correct • {attempt.wrongCount} Wrong
             </div>
           </div>
 
           {/* Time Taken */}
-          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Time Consumed</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#e2e8f0', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '14px' }}>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Time Consumed</div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#e2e8f0', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>
               {minutes}m {seconds}s
             </div>
-            <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
               Limit: {exam.durationMinutes} mins
             </div>
           </div>
@@ -185,18 +186,28 @@ export const ExamResults = () => {
 
       {/* QUESTION REVIEW & STEP-BY-STEP SOLUTIONS */}
       <section>
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', gap: '1rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', gap: '0.75rem' }}>
           <div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>
+            <h2 style={{ fontSize: 'clamp(1.2rem, 3vw, 1.5rem)', fontWeight: 800, color: '#f8fafc' }}>
               Comprehensive Question Solutions
             </h2>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
               Detailed mathematical derivations and answer verification.
             </p>
           </div>
 
           {/* Filter Tabs */}
-          <div style={{ display: 'flex', gap: '6px', background: 'rgba(255, 255, 255, 0.04)', padding: '4px', borderRadius: '8px' }}>
+          <div
+            className="horizontal-scroll-row"
+            style={{
+              display: 'flex',
+              gap: '4px',
+              background: 'rgba(255, 255, 255, 0.04)',
+              padding: '4px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
             {[
               { label: `All (${attempt.answers?.length || 0})`, value: 'all' },
               { label: `Correct (${attempt.correctCount})`, value: 'correct' },

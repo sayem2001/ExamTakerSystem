@@ -58,10 +58,16 @@ export const ExamLobby = () => {
 
     setStarting(true);
     try {
-      // Request fullscreen first
-      const elem = document.documentElement;
-      if (elem.requestFullscreen) {
-        await elem.requestFullscreen().catch(() => {});
+      // Request fullscreen first (gracefully ignored on mobile/safari if unsupported)
+      try {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+        }
+      } catch (fsErr) {
+        console.warn('Fullscreen not supported or allowed on this device:', fsErr);
       }
 
       // Initialize or resume attempt on backend
@@ -103,12 +109,12 @@ export const ExamLobby = () => {
   }
 
   return (
-    <div style={{ maxWidth: '900px', margin: '3rem auto 5rem', padding: '0 1.5rem' }}>
+    <div className="page-container" style={{ maxWidth: '900px', margin: '1.5rem auto 4rem', padding: '0 1rem', width: '100%', boxSizing: 'border-box' }}>
       
       {/* Already Attempted Banner */}
       {hasAttempted ? (
         <div className="glass-card" style={{
-          padding: '2.5rem',
+          padding: 'clamp(1.5rem, 4vw, 2.5rem)',
           textAlign: 'center',
           border: '1px solid rgba(16, 185, 129, 0.4)',
           boxShadow: '0 20px 40px -15px rgba(16, 185, 129, 0.2)',
@@ -128,21 +134,21 @@ export const ExamLobby = () => {
             <CheckCircle2 size={32} color="#10b981" />
           </div>
 
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem' }}>
+          <h2 style={{ fontSize: 'clamp(1.35rem, 3.5vw, 1.75rem)', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem' }}>
             Exam Attempt Already Completed
           </h2>
-          <p style={{ color: '#94a3b8', fontSize: '1rem', maxWidth: '600px', margin: '0 auto 1.75rem', lineHeight: 1.5 }}>
+          <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '600px', margin: '0 auto 1.75rem', lineHeight: 1.5 }}>
             You have already finalized your attempt for <strong>{exam.title}</strong>. Under the strict single-attempt policy, retakes are not permitted to ensure fairness across all participants.
           </p>
 
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             {attemptId && (
-              <Link to={`/results/${attemptId}`} className="btn-primary" style={{ padding: '12px 24px' }}>
+              <Link to={`/results/${attemptId}`} className="btn-primary" style={{ padding: '12px 20px', minHeight: '44px' }}>
                 <span>View My Results & Solutions</span>
                 <ArrowRight size={16} />
               </Link>
             )}
-            <Link to={`/leaderboard/exam/${exam._id}`} className="btn-secondary" style={{ padding: '12px 24px' }}>
+            <Link to={`/leaderboard/exam/${exam._id}`} className="btn-secondary" style={{ padding: '12px 20px', minHeight: '44px' }}>
               <Award size={16} />
               <span>View Live Leaderboard</span>
             </Link>
@@ -150,11 +156,11 @@ export const ExamLobby = () => {
         </div>
       ) : (
         /* Exam Pre-Flight Check & Instructions */
-        <div className="glass-card" style={{ padding: '2.5rem', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+        <div className="glass-card" style={{ padding: 'clamp(1.25rem, 3.5vw, 2.5rem)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
           
           {/* Header */}
-          <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1.5rem', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+          <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1.25rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
               <span className={`badge badge-${exam.difficulty}`}>
                 {exam.difficulty} Level
               </span>
@@ -162,10 +168,10 @@ export const ExamLobby = () => {
                 Code: {exam.examCode}
               </span>
             </div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem' }}>
+            <h1 style={{ fontSize: 'clamp(1.35rem, 3.5vw, 2rem)', fontWeight: 800, color: '#f8fafc', marginBottom: '0.5rem', lineHeight: 1.25 }}>
               {exam.title}
             </h1>
-            <p style={{ color: '#94a3b8', fontSize: '0.95rem' }}>
+            <p style={{ color: '#94a3b8', fontSize: '0.92rem', lineHeight: 1.5 }}>
               {exam.description || `Comprehensive examination on ${exam.topic}.`}
             </p>
           </div>
@@ -173,34 +179,34 @@ export const ExamLobby = () => {
           {/* Key Parameters */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: '12px',
-            marginBottom: '2rem',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: '10px',
+            marginBottom: '1.75rem',
           }}>
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '14px' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '12px' }}>
               <Clock size={18} color="#818cf8" style={{ marginBottom: '6px' }} />
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc' }}>{exam.durationMinutes} Mins</div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Time Limit</div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>{exam.durationMinutes} Mins</div>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Time Limit</div>
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '14px' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '12px' }}>
               <FileText size={18} color="#818cf8" style={{ marginBottom: '6px' }} />
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc' }}>{exam.questions?.length || 0} Questions</div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Multiple Choice</div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>{exam.questions?.length || 0} Questions</div>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Multiple Choice</div>
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '14px' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '12px' }}>
               <AlertTriangle size={18} color="#f59e0b" style={{ marginBottom: '6px' }} />
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc' }}>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>
                 {exam.negativeMarking ? `-${exam.negativeMarkingRate || 0.25} pts` : 'None'}
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Negative Marking</div>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Negative Marking</div>
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '14px' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '12px' }}>
               <Award size={18} color="#10b981" style={{ marginBottom: '6px' }} />
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc' }}>{exam.passPercentage}%</div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Passing Benchmark</div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, color: '#f8fafc' }}>{exam.passPercentage}%</div>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Passing Benchmark</div>
             </div>
           </div>
 
@@ -209,49 +215,50 @@ export const ExamLobby = () => {
             background: 'rgba(99, 102, 241, 0.05)',
             border: '1px solid rgba(99, 102, 241, 0.2)',
             borderRadius: '12px',
-            padding: '1.5rem',
-            marginBottom: '2rem',
+            padding: '1.25rem',
+            marginBottom: '1.75rem',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#818cf8', fontWeight: 700, marginBottom: '1rem' }}>
-              <ShieldAlert size={20} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#818cf8', fontWeight: 700, marginBottom: '0.75rem' }}>
+              <ShieldAlert size={18} />
               <span>Security & Honor Code Requirements</span>
             </div>
 
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem', color: '#cbd5e1' }}>
-              <li style={{ display: 'flex', gap: '8px' }}>
-                <span style={{ color: '#10b981' }}>✓</span>
-                <span><strong>Full-Screen Lockdown:</strong> The test runs in full-screen mode. Exiting full-screen triggers a violation alert.</span>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', color: '#cbd5e1' }}>
+              <li style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓</span>
+                <span><strong>Proctored Environment:</strong> The test runs in a focused browser mode. Please remain inside the exam tab.</span>
               </li>
-              <li style={{ display: 'flex', gap: '8px' }}>
-                <span style={{ color: '#10b981' }}>✓</span>
-                <span><strong>Tab Switch Interception:</strong> Switching tabs or minimizing the browser is actively logged. Exceeding 3 strikes results in automated disqualification.</span>
+              <li style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓</span>
+                <span><strong>Tab Switch Interception:</strong> Switching apps or tabs is actively logged. Exceeding 3 strikes triggers disqualification.</span>
               </li>
-              <li style={{ display: 'flex', gap: '8px' }}>
-                <span style={{ color: '#10b981' }}>✓</span>
+              <li style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓</span>
                 <span><strong>Single-Attempt Policy:</strong> You have exactly one attempt. Answers are finalized upon submit or timer expiration.</span>
               </li>
-              <li style={{ display: 'flex', gap: '8px' }}>
-                <span style={{ color: '#10b981' }}>✓</span>
-                <span><strong>Built-in Scratchpad:</strong> A digital rough notepad and drawing board is provided on-screen so you do not need external tools.</span>
+              <li style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓</span>
+                <span><strong>Built-in Virtual Scratchpad:</strong> A digital rough notepad and drawing board is provided on-screen so you do not need external tools.</span>
               </li>
             </ul>
           </div>
 
           {/* Agreement Checkbox */}
-          <div style={{ marginBottom: '2rem' }}>
+          <div style={{ marginBottom: '1.75rem' }}>
             <label style={{
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: '12px',
               cursor: 'pointer',
-              fontSize: '0.9rem',
+              fontSize: '0.88rem',
               color: '#f8fafc',
+              lineHeight: 1.45,
             }}>
               <input
                 type="checkbox"
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
-                style={{ width: '18px', height: '18px', accentColor: '#6366f1' }}
+                style={{ width: '20px', height: '20px', minWidth: '20px', accentColor: '#6366f1', marginTop: '2px', cursor: 'pointer' }}
               />
               <span>
                 I agree to the proctoring conditions, understand the 1-attempt rule, and certify that I will complete this assessment without unauthorized aids.
@@ -261,7 +268,7 @@ export const ExamLobby = () => {
 
           {/* Action Buttons */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <Link to="/dashboard" className="btn-secondary">
+            <Link to="/dashboard" className="btn-secondary" style={{ padding: '12px 20px', minHeight: '44px' }}>
               Back to Catalog
             </Link>
 
@@ -270,9 +277,11 @@ export const ExamLobby = () => {
               disabled={!agreed || starting}
               className="btn-primary"
               style={{
-                padding: '14px 32px',
-                fontSize: '1rem',
+                padding: '14px 28px',
+                fontSize: '0.95rem',
                 opacity: agreed ? 1 : 0.5,
+                minHeight: '48px',
+                flex: '1 1 auto',
               }}
             >
               {starting ? (
@@ -280,7 +289,7 @@ export const ExamLobby = () => {
               ) : (
                 <>
                   <Maximize2 size={18} />
-                  <span>Launch Fullscreen & Start Exam</span>
+                  <span>Launch & Start Exam</span>
                 </>
               )}
             </button>

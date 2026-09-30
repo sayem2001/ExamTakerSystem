@@ -141,13 +141,13 @@ export const Dashboard = () => {
   const completedCount = exams.filter((e) => e.hasAttempted).length;
 
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '2.5rem 1.5rem 4rem' }}>
+    <div className="page-container" style={{ maxWidth: '1280px', margin: '0 auto', padding: '1.5rem 1rem 3.5rem', width: '100%', boxSizing: 'border-box' }}>
       
       {/* Welcome Banner */}
       <div
         className="glass-card"
         style={{
-          padding: '2rem 2.5rem',
+          padding: '1.5rem 1.75rem',
           marginBottom: '2rem',
           background: 'linear-gradient(135deg, rgba(24, 33, 56, 0.9) 0%, rgba(15, 20, 34, 0.9) 100%)',
           border: '1px solid rgba(99, 102, 241, 0.25)',
@@ -155,7 +155,7 @@ export const Dashboard = () => {
           flexWrap: 'wrap',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '1.5rem',
+          gap: '1.25rem',
         }}
       >
         <div>
@@ -163,10 +163,10 @@ export const Dashboard = () => {
             <TrendingUp size={16} />
             <span>Student Portal</span>
           </div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-main)' }}>
+          <h1 style={{ fontSize: 'clamp(1.4rem, 4vw, 2rem)', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.2 }}>
             Welcome back, {user?.name || 'Candidate'}!
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginTop: '4px' }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '6px', maxWidth: '650px', lineHeight: 1.5 }}>
             Browse scheduled assessments, generate private AI practice tests from your study PDFs, and monitor your personal mastery metrics.
           </p>
         </div>
@@ -191,13 +191,12 @@ export const Dashboard = () => {
 
       {/* Main Tabs Navigation */}
       <div
+        className="horizontal-scroll-row"
         style={{
-          display: 'flex',
-          gap: '8px',
           borderBottom: '1px solid var(--border-subtle)',
           marginBottom: '2rem',
-          overflowX: 'auto',
           paddingBottom: '2px',
+          width: '100%',
         }}
       >
         <button
@@ -207,8 +206,8 @@ export const Dashboard = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '12px 20px',
-            fontSize: '0.95rem',
+            padding: '12px 18px',
+            fontSize: '0.92rem',
             fontWeight: 600,
             border: 'none',
             borderBottom: activeTab === 'official' ? '3px solid #6366f1' : '3px solid transparent',
@@ -216,6 +215,8 @@ export const Dashboard = () => {
             color: activeTab === 'official' ? '#818cf8' : 'var(--text-muted)',
             cursor: 'pointer',
             transition: 'all 0.2s',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
           <BookOpen size={18} />
@@ -229,8 +230,8 @@ export const Dashboard = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '12px 20px',
-            fontSize: '0.95rem',
+            padding: '12px 18px',
+            fontSize: '0.92rem',
             fontWeight: 600,
             border: 'none',
             borderBottom: activeTab === 'practice' ? '3px solid #6366f1' : '3px solid transparent',
@@ -238,6 +239,8 @@ export const Dashboard = () => {
             color: activeTab === 'practice' ? '#818cf8' : 'var(--text-muted)',
             cursor: 'pointer',
             transition: 'all 0.2s',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
           <Sparkles size={18} />
@@ -251,8 +254,8 @@ export const Dashboard = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '12px 20px',
-            fontSize: '0.95rem',
+            padding: '12px 18px',
+            fontSize: '0.92rem',
             fontWeight: 600,
             border: 'none',
             borderBottom: activeTab === 'performance' ? '3px solid #6366f1' : '3px solid transparent',
@@ -260,6 +263,8 @@ export const Dashboard = () => {
             color: activeTab === 'performance' ? '#818cf8' : 'var(--text-muted)',
             cursor: 'pointer',
             transition: 'all 0.2s',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
           <TrendingUp size={18} />
@@ -275,26 +280,28 @@ export const Dashboard = () => {
             style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: '1rem',
+              gap: '0.75rem',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: '1.5rem',
+              marginBottom: '1.25rem',
+              width: '100%',
             }}
           >
             {/* Search Input */}
             <div
               style={{
                 position: 'relative',
-                minWidth: '280px',
-                flex: '1',
-                maxWidth: '400px',
+                minWidth: '0',
+                flex: '1 1 260px',
+                width: '100%',
+                maxWidth: '420px',
               }}
             >
               <Search size={16} color="#64748b" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 type="text"
                 className="form-input"
-                style={{ paddingLeft: '38px' }}
+                style={{ paddingLeft: '38px', width: '100%' }}
                 placeholder="Search by topic, title, or exam code..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -302,9 +309,20 @@ export const Dashboard = () => {
             </div>
 
             {/* Difficulty Filter Tabs */}
-            <div style={{ display: 'flex', gap: '6px', background: 'rgba(255, 255, 255, 0.04)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <div
+              className="horizontal-scroll-row"
+              style={{
+                display: 'flex',
+                gap: '4px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                padding: '4px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-subtle)',
+                flexShrink: 0,
+              }}
+            >
               {[
-                { label: 'All Difficulties', value: 'all' },
+                { label: 'All', value: 'all' },
                 { label: 'Easy', value: 'easy' },
                 { label: 'Medium', value: 'medium' },
                 { label: 'Hard', value: 'hard' },
@@ -313,7 +331,7 @@ export const Dashboard = () => {
                   key={d.value}
                   onClick={() => setSelectedDifficulty(d.value)}
                   style={{
-                    padding: '6px 14px',
+                    padding: '6px 12px',
                     fontSize: '0.8rem',
                     fontWeight: 600,
                     borderRadius: '8px',
@@ -322,6 +340,7 @@ export const Dashboard = () => {
                     color: selectedDifficulty === d.value ? '#fff' : 'var(--text-muted)',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {d.label}
@@ -331,14 +350,23 @@ export const Dashboard = () => {
           </div>
 
           {/* Topic Filter Pills */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '2rem' }}>
+          <div
+            className="horizontal-scroll-row"
+            style={{
+              display: 'flex',
+              gap: '8px',
+              marginBottom: '1.75rem',
+              paddingBottom: '4px',
+              width: '100%',
+            }}
+          >
             {topics.map((t) => (
               <button
                 key={t}
                 onClick={() => setSelectedTopic(t)}
                 style={{
-                  padding: '6px 16px',
-                  fontSize: '0.85rem',
+                  padding: '6px 14px',
+                  fontSize: '0.82rem',
                   fontWeight: 500,
                   borderRadius: '9999px',
                   border: selectedTopic === t ? '1px solid #6366f1' : '1px solid var(--border-subtle)',
@@ -346,6 +374,8 @@ export const Dashboard = () => {
                   color: selectedTopic === t ? '#a5b4fc' : 'var(--text-muted)',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
                 {t}
@@ -363,13 +393,7 @@ export const Dashboard = () => {
               No exams found matching your current filter criteria.
             </div>
           ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-                gap: '1.5rem',
-              }}
-            >
+            <div className="exam-cards-grid">
               {filteredExams.map((exam) => {
                 const hasAttempted = exam.hasAttempted;
                 const attemptInfo = exam.userAttempt;
@@ -564,13 +588,7 @@ export const Dashboard = () => {
               </Link>
             </div>
           ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-                gap: '1.5rem',
-              }}
-            >
+            <div className="exam-cards-grid">
               {practiceExams.map((exam) => {
                 const hasAttempted = exam.hasAttempted;
                 const attempt = exam.userAttempt;
@@ -738,7 +756,7 @@ export const Dashboard = () => {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
                   gap: '1.25rem',
                   marginBottom: '2rem',
                 }}

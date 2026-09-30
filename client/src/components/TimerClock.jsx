@@ -46,12 +46,8 @@ export const TimerClock = ({ durationMinutes = 60, startedAt, onTimeUp }) => {
 
   return (
     <div
+      className="timer-clock-badge"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '6px 14px',
-        borderRadius: '8px',
         background: isCritical
           ? 'rgba(244, 63, 94, 0.25)'
           : isUrgent
@@ -65,14 +61,10 @@ export const TimerClock = ({ durationMinutes = 60, startedAt, onTimeUp }) => {
             : 'var(--border-subtle)'
         }`,
         color: isCritical ? '#f43f5e' : isUrgent ? '#fbbf24' : '#f8fafc',
-        fontFamily: 'var(--font-mono)',
-        fontSize: '1rem',
-        fontWeight: 700,
         boxShadow: isCritical ? '0 0 15px rgba(244, 63, 94, 0.4)' : 'none',
-        transition: 'all 0.3s ease',
       }}
     >
-      <Clock size={16} className={isCritical ? 'animate-pulse' : ''} />
+      <Clock size={15} className={isCritical ? 'animate-pulse' : ''} />
       <span>{formattedTime}</span>
       {isUrgent && (
         <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
