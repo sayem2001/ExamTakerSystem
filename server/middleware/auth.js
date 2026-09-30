@@ -33,4 +33,25 @@ const adminOnly = (req, res, next) => {
   }
 };
 
-module.exports = { protect, adminOnly };
+const optionalAuth = async (req, res, next) => {
+  let token;
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super_secure_jwt_secret_exam_taker_system_2026_xyz987');
+    req.user = await User.findById(decoded.id).select('-password');
+  } catch (error) {
+    // Non-fatal for optional auth
+  }
+  next();
+};
+
+module.exports = { protect, adminOnly, optionalAuth };

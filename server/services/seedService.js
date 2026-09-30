@@ -4,6 +4,7 @@ const Exam = require('../models/Exam');
 const Question = require('../models/Question');
 const ExamAttempt = require('../models/ExamAttempt');
 const SystemSetting = require('../models/SystemSetting');
+const Notice = require('../models/Notice');
 
 const seedInitialData = async () => {
   try {
@@ -25,6 +26,51 @@ const seedInitialData = async () => {
       admin.role = 'admin';
       await admin.save();
       console.log(`✅ User ${adminEmail} elevated to admin.`);
+    }
+
+    // Ensure initial notices exist on Notice Board
+    const noticeCount = await Notice.countDocuments();
+    if (noticeCount === 0 && admin) {
+      await Notice.create([
+        {
+          title: 'Fall 2026 Mathematics Midterm Examination Routine & Schedule',
+          content: 'All registered candidates are hereby notified that the official Midterm Assessments in Differential Calculus and Linear Algebra are scheduled as follows:\n\n• Calculus Differential Equations: October 15, 2026 at 10:00 AM UTC\n• Linear Algebra & Matrices: October 18, 2026 at 02:00 PM UTC\n• Advanced Probability & Statistics: October 22, 2026 at 11:00 AM UTC\n\nPlease ensure your device is charged and your browser is updated before the exam starts.',
+          category: 'routine',
+          priority: 'urgent',
+          eventDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          targetAudience: 'students',
+          author: admin._id,
+          authorName: admin.name || 'Central Examination Board',
+          isPinned: true,
+          isActive: true,
+          tags: ['Routine', 'Midterm', 'Schedule', 'Calculus'],
+        },
+        {
+          title: 'Mandatory Examination Guidelines & Anti-Cheat Protocol Instructions',
+          content: 'Important guidelines for candidates taking online proctored assessments:\n\n1. Fullscreen Enforcement: The exam workspace will request fullscreen mode upon start.\n2. Tab-Switch Monitoring: Navigating away from the exam tab will trigger an automatic security warning flag.\n3. Digital Scratchpad: An interactive canvas is integrated into the workspace—no paper or external devices are permitted.\n4. Mathematical Equations: All questions utilize standard LaTeX/KaTeX notation.\n\nFamiliarize yourself with the interface using the AI Practice Module prior to your official exam.',
+          category: 'instruction',
+          priority: 'high',
+          targetAudience: 'students',
+          author: admin._id,
+          authorName: admin.name || 'Academic Integrity Officer',
+          isPinned: true,
+          isActive: true,
+          tags: ['Instructions', 'Anti-Cheat', 'Rules', 'Proctoring'],
+        },
+        {
+          title: 'Public Beta Launch: Personal AI Practice Generator Now Live',
+          content: 'Welcome to the public beta of ApexExam! Candidates can now generate custom practice exams with step-by-step mathematical explanations powered by Google Gemini AI. Go to the "AI Practice" tab in your dashboard to generate custom question sets tailored to your target topics.',
+          category: 'announcement',
+          priority: 'normal',
+          targetAudience: 'all',
+          author: admin._id,
+          authorName: admin.name || 'Platform Administrator',
+          isPinned: false,
+          isActive: true,
+          tags: ['Beta', 'AI Practice', 'Announcement'],
+        },
+      ]);
+      console.log('✅ Seeded initial notices, routines, and instructions to Notice Board.');
     }
 
     const userCount = await User.countDocuments();

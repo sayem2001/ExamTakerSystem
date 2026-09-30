@@ -18,6 +18,7 @@ const attemptRoutes = require('./routes/attemptRoutes');
 const leaderboardRoutes = require('./routes/leaderboardRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const noticeRoutes = require('./routes/noticeRoutes');
 
 const app = express();
 
@@ -116,6 +117,7 @@ app.use('/api/exams', examRoutes);
 app.use('/api/attempts', attemptRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notices', noticeRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

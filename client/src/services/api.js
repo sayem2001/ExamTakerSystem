@@ -408,4 +408,62 @@ export const api = {
     });
     return await res.json();
   },
+
+  // Notices, Routines & Instructions
+  async getNotices(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${BASE_URL}/api/notices?${query}`, {
+      headers: getAuthHeaders(),
+    });
+    return await res.json();
+  },
+
+  async getNoticeById(id) {
+    const res = await fetch(`${BASE_URL}/api/notices/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    return await res.json();
+  },
+
+  async createNotice(data) {
+    const res = await fetch(`${BASE_URL}/api/notices`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || 'Failed to publish notice');
+    return result;
+  },
+
+  async updateNotice(id, data) {
+    const res = await fetch(`${BASE_URL}/api/notices/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || 'Failed to update notice');
+    return result;
+  },
+
+  async deleteNotice(id) {
+    const res = await fetch(`${BASE_URL}/api/notices/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || 'Failed to delete notice');
+    return result;
+  },
+
+  async togglePinNotice(id) {
+    const res = await fetch(`${BASE_URL}/api/notices/${id}/pin`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || 'Failed to toggle pin');
+    return result;
+  },
 };

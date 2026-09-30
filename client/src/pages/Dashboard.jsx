@@ -27,6 +27,7 @@ import {
   Target,
   Layers,
   Lock,
+  Bell,
 } from 'lucide-react';
 
 export const Dashboard = () => {
@@ -43,6 +44,9 @@ export const Dashboard = () => {
   const [selectedDifficulty, setSelectedDifficulty] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Top Notice / Exam Routine State
+  const [topNotice, setTopNotice] = useState(null);
+
   // Practice Exams State
   const [practiceExams, setPracticeExams] = useState([]);
   const [loadingPractice, setLoadingPractice] = useState(false);
@@ -55,6 +59,20 @@ export const Dashboard = () => {
   useEffect(() => {
     fetchExams();
   }, [selectedTopic, selectedDifficulty]);
+
+  useEffect(() => {
+    const fetchTopNotice = async () => {
+      try {
+        const res = await api.getNotices({ limit: 1 });
+        if (res.success && res.notices && res.notices.length > 0) {
+          setTopNotice(res.notices[0]);
+        }
+      } catch (err) {
+        // Non-fatal
+      }
+    };
+    fetchTopNotice();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'practice') {
@@ -188,6 +206,79 @@ export const Dashboard = () => {
           </Link>
         </div>
       </div>
+
+      {/* LATEST NOTICE / ROUTINE TICKER BANNER */}
+      {topNotice && (
+        <div
+          className="glass-card"
+          style={{
+            padding: '1rem 1.25rem',
+            marginBottom: '1.75rem',
+            background: topNotice.priority === 'urgent'
+              ? 'linear-gradient(90deg, rgba(244, 63, 94, 0.12) 0%, rgba(20, 24, 39, 0.6) 100%)'
+              : 'linear-gradient(90deg, rgba(99, 102, 241, 0.12) 0%, rgba(20, 24, 39, 0.6) 100%)',
+            border: topNotice.priority === 'urgent'
+              ? '1px solid rgba(244, 63, 94, 0.35)'
+              : '1px solid rgba(99, 102, 241, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '280px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              background: topNotice.priority === 'urgent' ? 'rgba(244, 63, 94, 0.2)' : 'rgba(99, 102, 241, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Bell size={18} color={topNotice.priority === 'urgent' ? '#f43f5e' : '#818cf8'} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: topNotice.priority === 'urgent' ? '#f43f5e' : '#818cf8' }}>
+                  {topNotice.isPinned ? '📌 PINNED NOTICE' : '📢 LATEST ANNOUNCEMENT'}
+                </span>
+                {topNotice.eventDate && (
+                  <span style={{ fontSize: '0.75rem', color: '#c7d2fe', fontWeight: 600 }}>
+                    • Scheduled: {new Date(topNotice.eventDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>
+                {topNotice.title}
+              </div>
+            </div>
+          </div>
+
+          <Link
+            to="/notices"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: '#818cf8',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              textDecoration: 'none',
+              padding: '7px 14px',
+              borderRadius: '6px',
+              background: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              transition: 'all 0.2s',
+            }}
+          >
+            <span>Notice Board</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      )}
 
       {/* Main Tabs Navigation */}
       <div

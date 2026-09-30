@@ -18,6 +18,7 @@ import ExamResults from './pages/ExamResults';
 import LeaderboardView from './pages/LeaderboardView';
 import StudentPracticeAi from './pages/StudentPracticeAi';
 import Settings from './pages/Settings';
+import NoticeBoard from './pages/NoticeBoard';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -26,6 +27,7 @@ import AdminAiPdfImport from './pages/admin/AdminAiPdfImport';
 import AdminQuestionBank from './pages/admin/AdminQuestionBank';
 import AdminSubmissions from './pages/admin/AdminSubmissions';
 import AdminSettings from './pages/admin/AdminSettings';
+import AdminNotices from './pages/admin/AdminNotices';
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
@@ -87,6 +89,7 @@ export const App = () => {
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/notices" element={<NoticeBoard />} />
             <Route path="/exam/:identifier" element={<ExamLobby />} />
             <Route path="/leaderboard" element={<LeaderboardView />} />
             <Route path="/leaderboard/exam/:examId" element={<LeaderboardView />} />
@@ -147,6 +150,14 @@ export const App = () => {
               element={
                 <AdminRoute>
                   <AdminExams />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/notices"
+              element={
+                <AdminRoute>
+                  <AdminNotices />
                 </AdminRoute>
               }
             />

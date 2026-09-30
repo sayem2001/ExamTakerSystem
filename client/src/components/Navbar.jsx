@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Bell,
 } from 'lucide-react';
 
 export const Navbar = () => {
@@ -185,6 +186,26 @@ export const Navbar = () => {
           >
             <Award size={16} />
             <span>Leaderboard</span>
+          </Link>
+
+          <Link
+            to="/notices"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: isActive('/notices') ? '#818cf8' : 'var(--text-muted)',
+              textDecoration: 'none',
+              fontSize: '0.9rem',
+              fontWeight: 500,
+              padding: '6px 12px',
+              borderRadius: '8px',
+              background: isActive('/notices') ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+              transition: 'all 0.2s',
+            }}
+          >
+            <Bell size={16} />
+            <span>Notices & Routines</span>
           </Link>
 
           {isAuthenticated && (
@@ -500,6 +521,30 @@ export const Navbar = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Award size={18} color="#fbbf24" />
                 <span>Live Leaderboards</span>
+              </div>
+              <ChevronRight size={16} color="#64748b" />
+            </Link>
+
+            <Link
+              to="/notices"
+              onClick={() => setMobileMenuOpen(false)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 16px',
+                borderRadius: '10px',
+                background: isActive('/notices') ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                border: isActive('/notices') ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent',
+                color: isActive('/notices') ? '#a5b4fc' : 'var(--text-main)',
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: '1rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Bell size={18} color="#38bdf8" />
+                <span>Notice Board & Routines</span>
               </div>
               <ChevronRight size={16} color="#64748b" />
             </Link>

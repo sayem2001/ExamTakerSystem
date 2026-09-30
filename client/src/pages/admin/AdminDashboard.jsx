@@ -13,6 +13,8 @@ import {
   ArrowRight,
   Settings,
   Plus,
+  Bell,
+  Megaphone,
 } from 'lucide-react';
 
 export const AdminDashboard = () => {
@@ -272,6 +274,43 @@ export const AdminDashboard = () => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f43f5e', fontSize: '0.85rem', fontWeight: 600, marginTop: '1.25rem' }}>
             <span>Audit Submissions</span>
+            <ArrowRight size={15} />
+          </div>
+        </Link>
+
+        <Link
+          to="/admin/notices"
+          className="glass-card"
+          style={{
+            padding: '1.75rem',
+            textDecoration: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div>
+            <div style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              background: 'rgba(59, 130, 246, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '1rem',
+            }}>
+              <Bell size={22} color="#60a5fa" />
+            </div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.5rem' }}>
+              Notice Board & Routines
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.5 }}>
+              Publish official exam routines, dates, anti-cheat instructions, and pin critical announcements for candidates.
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#60a5fa', fontSize: '0.85rem', fontWeight: 600, marginTop: '1.25rem' }}>
+            <span>Manage Notices</span>
             <ArrowRight size={15} />
           </div>
         </Link>
