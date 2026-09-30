@@ -20,7 +20,10 @@ const verifyFirebaseIdToken = async (idToken) => {
     throw new Error('Valid Firebase ID token is required');
   }
 
-  const apiKey = process.env.FIREBASE_API_KEY || 'AIzaSyBu6iw4a5nzvujImH086KfqJ3PSXUgBjoM';
+  const apiKey = process.env.FIREBASE_API_KEY;
+  if (!apiKey) {
+    throw new Error('FIREBASE_API_KEY is not configured in server environment');
+  }
   const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
 
   const response = await fetch(url, {

@@ -13,13 +13,13 @@ import {
 } from 'firebase/auth';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBu6iw4a5nzvujImH086KfqJ3PSXUgBjoM",
-  authDomain: "apexexam-d3e04.firebaseapp.com",
-  projectId: "apexexam-d3e04",
-  storageBucket: "apexexam-d3e04.firebasestorage.app",
-  messagingSenderId: "490761038859",
-  appId: "1:490761038859:web:b4867ab85e8ef16a082b0e",
-  measurementId: "G-29ZZKH37ZQ"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "apexexam-d3e04.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "apexexam-d3e04",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "apexexam-d3e04.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "490761038859",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:490761038859:web:b4867ab85e8ef16a082b0e",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-29ZZKH37ZQ",
 };
 
 // Initialize Firebase App

@@ -8,8 +8,15 @@ client/dist/
 
 # Environment and sensitive keys
 .env
+.env.*
 *.env
+client/.env
+client/.env.*
+server/.env
+server/.env.*
 !.env.example
+!client/.env.example
+!server/.env.example
 atlas-credentials.env
 
 # Uploaded candidate and exam files
