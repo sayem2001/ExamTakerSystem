@@ -31,11 +31,149 @@ import {
   CheckSquare,
 } from 'lucide-react';
 
+export const SUBJECT_CONFIGS = {
+  math: {
+    id: 'math',
+    name: 'Mathematics',
+    tagline: 'Quantitative Problem Solving, Formulas & Equations',
+    badgeText: 'GMAT Quant & LaTeX',
+    accentColor: '#6366f1',
+    defaultTopic: 'Profit and Loss',
+    quickTopics: [
+      'Profit and Loss',
+      'Simple & Compound Interest',
+      'Time, Speed & Distance',
+      'Geometry & Mensuration',
+      'Algebra & Equations',
+      'Permutation & Probability',
+    ],
+    placeholder:
+      'Paste math problems or exercises here...\n\nExample:\n1. A merchant marks his goods up by 25% above cost price and allows a discount of 10%. Find his profit percentage.\n2. A train traveling at 72 km/h crosses a 180m platform in 15 seconds. What is the length of the train?',
+    difficulties: {
+      easy: {
+        title: 'Easy: Value Modification Only',
+        subtitle: 'Preserves exact question concept, scenario, & relationships from source',
+        color: '#34d399',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: 'rgba(16, 185, 129, 0.3)',
+        desc: 'Reads questions directly from the document and simply modifies numerical values, prices, percentages, or rates. Keeps the exact scenario, entities, and relationships 100% intact while recalculating all options and KaTeX solutions.',
+      },
+      medium: {
+        title: 'Medium: Concept-Preserving Slight Modification',
+        subtitle: 'Rephrased context, inverted unknown variables, or added intermediate steps',
+        color: '#fbbf24',
+        bg: 'rgba(245, 158, 11, 0.1)',
+        border: 'rgba(245, 158, 11, 0.3)',
+        desc: 'The entire question and topic remain intact, but slight modifications are applied: rephrased wording, inverting variables to solve for different unknowns (e.g. solve for Cost Price instead of Selling Price), or adding extra contextual info while hiding intermediate details.',
+      },
+      hard: {
+        title: 'Hard: GMAT-Level Difficulty & Live Web Search Grounding',
+        subtitle: 'GMAT Problem Solving & Data Sufficiency with forum-researched trap patterns',
+        color: '#f43f5e',
+        bg: 'rgba(244, 63, 94, 0.1)',
+        border: 'rgba(244, 63, 94, 0.3)',
+        desc: 'Reads original questions and significantly transforms them into GMAT-caliber quantitative reasoning problems within topic scope. Conducts live web research across GMAT Club, Beat The GMAT, and exam forums for tricky modification archetypes and subtle distractor traps.',
+      },
+    },
+  },
+  english: {
+    id: 'english',
+    name: 'English Verbal',
+    tagline: 'Sentence Correction, Critical Reasoning & Verbal Aptitude',
+    badgeText: 'GMAT / GRE Verbal Standard',
+    accentColor: '#38bdf8',
+    defaultTopic: 'Sentence Correction & Grammar',
+    quickTopics: [
+      'Sentence Correction',
+      'Subject-Verb Agreement',
+      'Critical Reasoning',
+      'Parallelism & Modifiers',
+      'Idiomatic Prepositions',
+      'Vocabulary & Analogy',
+    ],
+    placeholder:
+      'Paste English grammar exercises, sentence correction questions, or critical reasoning arguments here...\n\nExample:\n1. Neither the teacher nor the students (was/were) present at the symposium.\n2. Although the corporation reported record profits, its stock price plummeted because analysts expected even higher returns. Which option corrects the underlined error?',
+    difficulties: {
+      easy: {
+        title: 'Easy: Direct Vocabulary & Subject Variation',
+        subtitle: 'Substitutes vocabulary / context while preserving the exact grammatical rule',
+        color: '#34d399',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: 'rgba(16, 185, 129, 0.3)',
+        desc: 'Takes the given questions and verbal archetypes as blueprints. Simply modifies vocabulary, subject-nouns, or direct context while keeping the grammatical structure, rule, and relationships 100% intact.',
+      },
+      medium: {
+        title: 'Medium: Clause Inversion & Nuanced Phrasing',
+        subtitle: 'Compound/complex structures, prepositional nuances & colloquial traps',
+        color: '#fbbf24',
+        bg: 'rgba(245, 158, 11, 0.1)',
+        border: 'rgba(245, 158, 11, 0.3)',
+        desc: 'Inverts clauses, inserts modifying phrases between subject and verb, or tests subtle idiomatic prepositions and pronoun antecedent clarity with plausible distractors.',
+      },
+      hard: {
+        title: 'Hard: GMAT/GRE Verbal Standard & Traps',
+        subtitle: 'Elite Sentence Correction (parallelism/modifiers) & Critical Reasoning',
+        color: '#f43f5e',
+        bg: 'rgba(244, 63, 94, 0.1)',
+        border: 'rgba(244, 63, 94, 0.3)',
+        desc: 'Elevates questions to GMAT/GRE 700+ verbal standards: strict correlative parallelism, subtle misplaced modifiers, subjunctive mood, comparison logic (like vs. as), and critical reasoning assumption/weaken structures.',
+      },
+    },
+  },
+  universal: {
+    id: 'universal',
+    name: 'Universal Subject',
+    tagline: 'Bangla, Science, ICT, History & General Studies (Academic & BCS Standard)',
+    badgeText: 'BCS & Admission (Non-GMAT)',
+    accentColor: '#10b981',
+    defaultTopic: 'বাংলা ব্যাকরণ ও সাহিত্য',
+    quickTopics: [
+      'বাংলা ব্যাকরণ ও সাহিত্য',
+      'General Science & Environment',
+      'Bangladesh & International Affairs',
+      'ICT & Computer Science',
+      'ইতিহাস ও মুক্তিযুদ্ধ',
+      'সাধারণ বিজ্ঞান',
+    ],
+    placeholder:
+      'যেকোনো বিষয়ের প্রশ্ন বা অনুশীলনী এখানে পেস্ট করুন (বাংলা বা ইংরেজি)...\n\nউদাহরণ:\n১. "আমার ভাইয়ের রক্তে রাঙানো একুশে ফেব্রুয়ারি" গানটির প্রথম সুরকার কে?\nক) আলতাফ মাহমুদ  খ) আব্দুল লতিফ  গ) সমর দাস  ঘ) শেখ লুৎফর রহমান\n২. আলোর প্রতিসরণের দ্বিতীয় সূত্রটি কে আবিষ্কার করেন?',
+    difficulties: {
+      easy: {
+        title: 'Easy: Direct Conceptual & Factual Substitution',
+        subtitle: 'Substitutes entity or event while preserving core law/definition (Non-GMAT)',
+        color: '#34d399',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: 'rgba(16, 185, 129, 0.3)',
+        desc: 'Preserves the exact native language (Bangla or English) and core definition, substituting specific poets, historical years, terms, or species with accurate explanations.',
+      },
+      medium: {
+        title: 'Medium: Application & Multi-Statement Evaluation',
+        subtitle: 'Cause-effect, relationships, and i, ii, iii multi-statement options',
+        color: '#fbbf24',
+        bg: 'rgba(245, 158, 11, 0.1)',
+        border: 'rgba(245, 158, 11, 0.3)',
+        desc: 'Standard BCS & University Admission level: multi-statement evaluation (i, ii, iii নিচের কোনটি সঠিক?), conceptual cause-effect, and grammatical rule discrimination. No GMAT format.',
+      },
+      hard: {
+        title: 'Hard: High-Discrimination Competitive Mastery',
+        subtitle: 'BCS Cadre & Premier University Admission A/B/C/D unit standards',
+        color: '#f43f5e',
+        bg: 'rgba(244, 63, 94, 0.1)',
+        border: 'rgba(244, 63, 94, 0.3)',
+        desc: 'Highest-tier national competitive standard: tests rule exceptions, subtle misconceptions, multi-tier assertions, and highly deceptive distractors without GMAT jargon.',
+      },
+    },
+  },
+};
+
 export const AdminAiPdfImport = () => {
   const navigate = useNavigate();
 
   // Wizard Steps: 1 = Upload & Generate, 2 = Review Questions, 3 = Schedule Exam, 4 = Published & Active
   const [step, setStep] = useState(1);
+
+  // Subject Generator Engine: 'math' | 'english' | 'universal'
+  const [subjectType, setSubjectType] = useState('math');
 
   // Input source mode: 'pdf' | 'paste'
   const [inputMode, setInputMode] = useState('pdf');
@@ -90,6 +228,18 @@ export const AdminAiPdfImport = () => {
     disableRightClick: true,
   });
 
+  const currentSubjectConfig = SUBJECT_CONFIGS[subjectType] || SUBJECT_CONFIGS.math;
+
+  const handleSubjectChange = (newSubject) => {
+    if (newSubject === subjectType) return;
+    setSubjectType(newSubject);
+    const cfg = SUBJECT_CONFIGS[newSubject];
+    if (cfg) {
+      setTopic(cfg.defaultTopic);
+    }
+    setError('');
+  };
+
   // Handle PDF file selection and auto-detect topic from filename
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -115,25 +265,52 @@ export const AdminAiPdfImport = () => {
 
       // Auto-detect topic from filename
       const filename = file.name.replace(/\.(pdf|docx|doc)$/i, '').replace(/[-_]/g, ' ');
-      if (/profit|loss/i.test(filename)) {
-        setTopic('Profit and Loss');
-      } else if (/calculus|integral|derivative/i.test(filename)) {
-        setTopic('Calculus');
-      } else if (/algebra|matrix|vector/i.test(filename)) {
-        setTopic('Linear Algebra');
-      } else if (/geometry/i.test(filename)) {
-        setTopic('Geometry');
-      } else if (/trigonometry/i.test(filename)) {
-        setTopic('Trigonometry');
-      } else if (/probability|statistics/i.test(filename)) {
-        setTopic('Probability & Statistics');
+
+      if (subjectType === 'english') {
+        if (/sentence\s*correction|parallel|modifier|grammar/i.test(filename)) {
+          setTopic('Sentence Correction & Grammar');
+        } else if (/critical\s*reasoning|argument|assumption|weaken|strengthen/i.test(filename)) {
+          setTopic('Critical Reasoning');
+        } else if (/vocab|synonym|antonym|analogy/i.test(filename)) {
+          setTopic('Vocabulary & Analogy');
+        } else if (/preposition|idiom/i.test(filename)) {
+          setTopic('Idiomatic Prepositions');
+        } else {
+          setTopic('Sentence Correction & Grammar');
+        }
+      } else if (subjectType === 'universal') {
+        if (/বাংলা|ব্যাকরণ|সাহিত্য|সমাস|সন্ধি|কারক/i.test(filename)) {
+          setTopic('বাংলা ব্যাকরণ ও সাহিত্য');
+        } else if (/science|বিজ্ঞান|physics|chemistry|biology/i.test(filename)) {
+          setTopic('General Science & Environment');
+        } else if (/ict|computer|তথ্য\s*প্রযুক্তি/i.test(filename)) {
+          setTopic('ICT & Computer Science');
+        } else if (/বাংলাদেশ|আন্তর্জাতিক|affairs|history|ইতিহাস/i.test(filename)) {
+          setTopic('Bangladesh & International Affairs');
+        } else {
+          setTopic('বাংলা ব্যাকরণ ও সাহিত্য');
+        }
       } else {
-        const cleaned = filename
-          .replace(/^ACS\s*IBA\s*Math\s*Quant\s*/i, '')
-          .replace(/^Chapter\s*\d+\s*/i, '')
-          .trim();
-        if (cleaned.length > 2) {
-          setTopic(cleaned.charAt(0).toUpperCase() + cleaned.slice(1));
+        if (/profit|loss/i.test(filename)) {
+          setTopic('Profit and Loss');
+        } else if (/calculus|integral|derivative/i.test(filename)) {
+          setTopic('Calculus');
+        } else if (/algebra|matrix|vector/i.test(filename)) {
+          setTopic('Linear Algebra');
+        } else if (/geometry/i.test(filename)) {
+          setTopic('Geometry');
+        } else if (/trigonometry/i.test(filename)) {
+          setTopic('Trigonometry');
+        } else if (/probability|statistics/i.test(filename)) {
+          setTopic('Probability & Statistics');
+        } else {
+          const cleaned = filename
+            .replace(/^ACS\s*IBA\s*Math\s*Quant\s*/i, '')
+            .replace(/^Chapter\s*\d+\s*/i, '')
+            .trim();
+          if (cleaned.length > 2) {
+            setTopic(cleaned.charAt(0).toUpperCase() + cleaned.slice(1));
+          }
         }
       }
     }
@@ -148,24 +325,46 @@ export const AdminAiPdfImport = () => {
     setExtractionMeta(null);
 
     if (text.length > 15) {
-      if (/profit|loss|selling\s*price|cost\s*price|markup|discount/i.test(text)) {
-        setTopic('Profit and Loss');
-      } else if (/simple\s*interest|compound\s*interest|principal|per\s*annum/i.test(text)) {
-        setTopic('Simple & Compound Interest');
-      } else if (/speed|distance|train|stream|boat|km\/h/i.test(text)) {
-        setTopic('Time, Speed & Distance');
-      } else if (/ratio|proportion|mixture|alligation/i.test(text)) {
-        setTopic('Ratio & Proportion');
-      } else if (/work|pipe|cistern|men\s*and\s*women/i.test(text)) {
-        setTopic('Time & Work');
-      } else if (/derivative|integral|limit|calculus|tangent/i.test(text)) {
-        setTopic('Calculus');
-      } else if (/quadratic|equation|polynomial|matrix|algebra/i.test(text)) {
-        setTopic('Algebra');
-      } else if (/triangle|circle|polygon|perimeter|area|angle|geometry/i.test(text)) {
-        setTopic('Geometry');
-      } else if (/permutation|combination|probability|dice|card/i.test(text)) {
-        setTopic('Probability & Permutation');
+      if (subjectType === 'english') {
+        if (/sentence\s*correction|underlined|grammatical|parallel/i.test(text)) {
+          setTopic('Sentence Correction');
+        } else if (/argument|conclusion|assumption|weaken|strengthen/i.test(text)) {
+          setTopic('Critical Reasoning');
+        } else if (/preposition|idiom|phrasal/i.test(text)) {
+          setTopic('Idiomatic Prepositions');
+        } else if (/synonym|antonym|analogy|vocabulary/i.test(text)) {
+          setTopic('Vocabulary & Analogy');
+        }
+      } else if (subjectType === 'universal') {
+        if (/বাংলা|ব্যাকরণ|সমাস|সন্ধি|কারক|রবীন্দ্রনাথ|নজরুল/i.test(text)) {
+          setTopic('বাংলা ব্যাকরণ ও সাহিত্য');
+        } else if (/বিজ্ঞান|আলো|গতি|পরমাণু|কোষ|অভিকর্ষ/i.test(text)) {
+          setTopic('সাধারণ বিজ্ঞান');
+        } else if (/কম্পিউটার|মেমোরি|প্রসেসর|নেটওয়ার্ক|ইন্টারনেট|বাইনারি|আইসিটি/i.test(text)) {
+          setTopic('তথ্য ও যোগাযোগ প্রযুক্তি (ICT)');
+        } else if (/সংবিধান|মুক্তিযুদ্ধ|বঙ্গবন্ধু|সংসদ|আন্তর্জাতিক/i.test(text)) {
+          setTopic('বাংলাদেশ ও আন্তর্জাতিক বিষয়াবলী');
+        }
+      } else {
+        if (/profit|loss|selling\s*price|cost\s*price|markup|discount/i.test(text)) {
+          setTopic('Profit and Loss');
+        } else if (/simple\s*interest|compound\s*interest|principal|per\s*annum/i.test(text)) {
+          setTopic('Simple & Compound Interest');
+        } else if (/speed|distance|train|stream|boat|km\/h/i.test(text)) {
+          setTopic('Time, Speed & Distance');
+        } else if (/ratio|proportion|mixture|alligation/i.test(text)) {
+          setTopic('Ratio & Proportion');
+        } else if (/work|pipe|cistern|men\s*and\s*women/i.test(text)) {
+          setTopic('Time & Work');
+        } else if (/derivative|integral|limit|calculus|tangent/i.test(text)) {
+          setTopic('Calculus');
+        } else if (/quadratic|equation|polynomial|matrix|algebra/i.test(text)) {
+          setTopic('Algebra');
+        } else if (/triangle|circle|polygon|perimeter|area|angle|geometry/i.test(text)) {
+          setTopic('Geometry');
+        } else if (/permutation|combination|probability|dice|card/i.test(text)) {
+          setTopic('Probability & Permutation');
+        }
       }
     }
   };
@@ -200,6 +399,7 @@ export const AdminAiPdfImport = () => {
         formData.append('pastedText', pastedText.trim());
       }
       formData.append('topic', topic.trim());
+      formData.append('subjectType', subjectType);
 
       const res = await api.extractQuestionsFromDoc(formData);
 
@@ -251,7 +451,11 @@ export const AdminAiPdfImport = () => {
     setError('');
     setProgressMsg(
       difficulty === 'hard'
-        ? `Researching GMAT Club & competitive exam archives for tricky modification patterns, then synthesizing ${effectiveCount} GMAT-level questions across diverse cases...`
+        ? subjectType === 'english'
+          ? `Researching GMAT/GRE Verbal standards & trap patterns, then synthesizing ${effectiveCount} Verbal questions...`
+          : subjectType === 'universal'
+          ? `Applying BCS & University Admission high-discrimination standards, then synthesizing ${effectiveCount} questions...`
+          : `Researching GMAT Club & competitive exam archives for tricky modification patterns, then synthesizing ${effectiveCount} GMAT-level questions across diverse cases...`
         : `Synthesizing ${effectiveCount} ${difficulty.toUpperCase()} questions across diverse problem cases...`
     );
 
@@ -260,6 +464,7 @@ export const AdminAiPdfImport = () => {
         extractedQuestions: sourceQuestions,
         topic: topic.trim(),
         difficulty,
+        subjectType,
         questionCount: effectiveCount,
         pdfDocument: pdfMeta,
       };
@@ -374,7 +579,11 @@ export const AdminAiPdfImport = () => {
     setError('');
     setProgressMsg(
       difficulty === 'hard'
-        ? `Scanning entire document, researching GMAT Club archives for modification blueprints, and generating ${effectiveCount} GMAT-level questions...`
+        ? subjectType === 'english'
+          ? `Scanning entire document, researching GMAT/GRE verbal blueprints, and generating ${effectiveCount} Verbal questions...`
+          : subjectType === 'universal'
+          ? `Scanning entire document, applying BCS & Admission standards, and generating ${effectiveCount} questions...`
+          : `Scanning entire document, researching GMAT Club archives for modification blueprints, and generating ${effectiveCount} GMAT-level questions...`
         : `Scanning entire document and synthesizing ${effectiveCount} diverse ${difficulty.toUpperCase()} questions...`
     );
 
@@ -386,6 +595,7 @@ export const AdminAiPdfImport = () => {
         formData.append('pastedText', pastedText.trim());
       }
       formData.append('topic', topic.trim());
+      formData.append('subjectType', subjectType);
       formData.append('questionCount', effectiveCount);
       formData.append('difficulty', difficulty);
 
@@ -497,36 +707,8 @@ export const AdminAiPdfImport = () => {
 
   // Difficulty explanation helper
   const getDifficultyInfo = (diff) => {
-    switch (diff) {
-      case 'easy':
-        return {
-          title: 'Easy: Direct Value Variation',
-          subtitle: 'Preserves exact question concept, scenario, & relationships from source',
-          color: '#34d399',
-          bg: 'rgba(16, 185, 129, 0.1)',
-          border: 'rgba(16, 185, 129, 0.3)',
-          desc: 'Reads questions directly from the document and simply modifies the numerical values, prices, percentages, or rates. Keeps the exact question scenario, entities, and relationships 100% intact while recalculating all options, answer key, and step-by-step solutions.',
-        };
-      case 'hard':
-        return {
-          title: 'Hard: GMAT-Level Difficulty & Live Web Search Grounding',
-          subtitle: 'GMAT Problem Solving & Data Sufficiency with forum-researched trap patterns',
-          color: '#f43f5e',
-          bg: 'rgba(244, 63, 94, 0.1)',
-          border: 'rgba(244, 63, 94, 0.3)',
-          desc: 'Reads original questions and significantly transforms them into GMAT-caliber quantitative reasoning problems within the topic scope. Conducts live web research across GMAT Club, Beat The GMAT, and exam forums for tricky modification archetypes and subtle distractor traps.',
-        };
-      case 'medium':
-      default:
-        return {
-          title: 'Medium: Concept-Preserving Slight Modification',
-          subtitle: 'Rephrased context, inverted unknown variables, or added intermediate steps',
-          color: '#fbbf24',
-          bg: 'rgba(245, 158, 11, 0.1)',
-          border: 'rgba(245, 158, 11, 0.3)',
-          desc: 'The entire question and topic remain intact, but slight modifications are applied: rephrased wording, inverting variables to solve for different unknowns (e.g. solve for Cost Price instead of Selling Price), or adding extra contextual info while hiding intermediate details.',
-        };
-    }
+    const activeSubj = SUBJECT_CONFIGS[subjectType] || SUBJECT_CONFIGS.math;
+    return activeSubj.difficulties[diff] || activeSubj.difficulties.medium;
   };
 
   const currentDiffInfo = getDifficultyInfo(difficulty);
@@ -562,7 +744,7 @@ export const AdminAiPdfImport = () => {
           AI PDF Exam Generator & Question Studio
         </h1>
         <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '860px', lineHeight: 1.6 }}>
-          Upload math examination PDFs or paste problem sets. The system reads the full document, filters out theoretical text and formulas, lists all source questions, and generates diverse modified questions calibrated to your exact difficulty specifications.
+          Upload examination PDFs or paste question sets for Math, English, or Universal subjects (Bangla, Science, ICT & General Studies). The system reads the full document, filters out theoretical text and formula sheets, lists all source questions, and generates diverse modified questions calibrated to your exact difficulty specifications.
         </p>
 
         {/* Wizard Step Indicators */}
@@ -661,6 +843,115 @@ export const AdminAiPdfImport = () => {
       {/* ================= STEP 1: UPLOAD, EXTRACT & CONFIGURE GENERATION ================= */}
       {step === 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+
+          {/* 3-WAY SPECIALIZED QUESTION GENERATOR SELECTOR */}
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: '16px',
+            padding: '1.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sparkles size={20} color={currentSubjectConfig.accentColor} />
+                  <span>3 Specialized Question Generators</span>
+                </div>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '2px' }}>
+                  Choose your dedicated engine: Math retains quantitative GMAT logic, English tests GMAT/GRE Verbal standards, and Universal powers Bangla, Science & ICT (Non-GMAT).
+                </p>
+              </div>
+
+              <span style={{
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: currentSubjectConfig.accentColor,
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: `1px solid ${currentSubjectConfig.accentColor}40`,
+                padding: '4px 12px',
+                borderRadius: '20px',
+              }}>
+                Active: {currentSubjectConfig.name} ({currentSubjectConfig.badgeText})
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+              {Object.values(SUBJECT_CONFIGS).map((subj) => {
+                const isSelected = subjectType === subj.id;
+                return (
+                  <div
+                    key={subj.id}
+                    onClick={() => handleSubjectChange(subj.id)}
+                    style={{
+                      padding: '1.25rem',
+                      borderRadius: '14px',
+                      cursor: 'pointer',
+                      background: isSelected ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.015)',
+                      border: isSelected ? `2px solid ${subj.accentColor}` : '1px solid var(--border-subtle)',
+                      boxShadow: isSelected ? `0 0 20px ${subj.accentColor}30` : 'none',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          background: `${subj.accentColor}25`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: subj.accentColor,
+                          fontWeight: 800,
+                          fontSize: '1rem',
+                        }}>
+                          {subj.id === 'math' ? '∑' : subj.id === 'english' ? 'Aa' : 'ব'}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '1rem', fontWeight: 800, color: isSelected ? '#fff' : '#e2e8f0' }}>
+                            {subj.name}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: subj.accentColor, fontWeight: 700 }}>
+                            {subj.badgeText}
+                          </div>
+                        </div>
+                      </div>
+                      {isSelected ? (
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          background: subj.accentColor,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          <Check size={13} color="#fff" />
+                        </div>
+                      ) : (
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          border: '1.5px solid #475569',
+                        }} />
+                      )}
+                    </div>
+                    <p style={{ fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.5, margin: 0 }}>
+                      {subj.tagline}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Quick Action: 1-Click Load & Deploy 30 Verified Hard Questions */}
           <div style={{
@@ -941,7 +1232,7 @@ export const AdminAiPdfImport = () => {
                 <textarea
                   className="form-input"
                   rows={8}
-                  placeholder={`Paste your problem set or chapter contents here...\n\nExample:\nCHAPTER 3: PROFIT & LOSS\nTheory: Profit is SP - CP...\n\nProblems:\n1. A merchant marks goods 25% above cost price and gives 10% discount...\n2. By selling 33 meters of cloth, a shopkeeper gains the selling price of 11 meters...`}
+                  placeholder={currentSubjectConfig.placeholder}
                   value={pastedText}
                   onChange={(e) => handlePastedTextChange(e.target.value)}
                   style={{
@@ -956,18 +1247,43 @@ export const AdminAiPdfImport = () => {
 
             {/* Action Bar for Phase 1 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1' }}>
-                  Mathematical Topic:
-                </label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Profit and Loss"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  style={{ width: '240px', padding: '8px 12px' }}
-                />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1' }}>
+                    {currentSubjectConfig.name} Topic:
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder={`e.g. ${currentSubjectConfig.defaultTopic}`}
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    style={{ width: '260px', padding: '8px 12px' }}
+                  />
+                </div>
+                {currentSubjectConfig.quickTopics && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Quick topics:</span>
+                    {currentSubjectConfig.quickTopics.map((qt) => (
+                      <button
+                        key={qt}
+                        type="button"
+                        onClick={() => setTopic(qt)}
+                        style={{
+                          background: topic === qt ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                          border: topic === qt ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                          color: topic === qt ? '#a5b4fc' : '#cbd5e1',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '0.72rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {qt}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button
@@ -1258,13 +1574,16 @@ export const AdminAiPdfImport = () => {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#34d399' }}>
-                      🟢 Easy (Value Modification)
+                    <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#34d399' }}>
+                      🟢 {currentSubjectConfig.difficulties.easy.title}
                     </span>
                     {difficulty === 'easy' && <Check size={18} color="#34d399" />}
                   </div>
-                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Preserves original question statements, entities, and context intact. Simply modifies numerical values and recalculates solutions.
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#a7f3d0', marginBottom: '6px' }}>
+                    {currentSubjectConfig.difficulties.easy.subtitle}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5, margin: 0 }}>
+                    {currentSubjectConfig.difficulties.easy.desc}
                   </p>
                 </div>
 
@@ -1282,17 +1601,20 @@ export const AdminAiPdfImport = () => {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#fbbf24' }}>
-                      🟡 Medium (Slight Modification)
+                    <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#fbbf24' }}>
+                      🟡 {currentSubjectConfig.difficulties.medium.title}
                     </span>
                     {difficulty === 'medium' && <Check size={18} color="#fbbf24" />}
                   </div>
-                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Question concept intact with slight modifications: rephrased wording, inverting variables to find solutions, or adding intermediate details.
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fde68a', marginBottom: '6px' }}>
+                    {currentSubjectConfig.difficulties.medium.subtitle}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5, margin: 0 }}>
+                    {currentSubjectConfig.difficulties.medium.desc}
                   </p>
                 </div>
 
-                {/* HARD TIER (GMAT-LEVEL) */}
+                {/* HARD TIER */}
                 <div
                   onClick={() => setDifficulty('hard')}
                   style={{
@@ -1306,13 +1628,16 @@ export const AdminAiPdfImport = () => {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#f43f5e' }}>
-                      🔴 Hard (GMAT-Level + Web Search)
+                    <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#f43f5e' }}>
+                      🔴 {currentSubjectConfig.difficulties.hard.title}
                     </span>
                     {difficulty === 'hard' && <Check size={18} color="#f43f5e" />}
                   </div>
-                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5 }}>
-                    Produces GMAT-level quantitative questions (Problem Solving & Data Sufficiency). Searches GMAT Club & forums for tricky trap patterns.
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fecdd3', marginBottom: '6px' }}>
+                    {currentSubjectConfig.difficulties.hard.subtitle}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.5, margin: 0 }}>
+                    {currentSubjectConfig.difficulties.hard.desc}
                   </p>
                 </div>
 
@@ -1352,7 +1677,13 @@ export const AdminAiPdfImport = () => {
                       border: '1px solid rgba(244, 63, 94, 0.3)',
                     }}>
                       <Globe size={13} />
-                      <span>Live Web Grounding Active: GMAT Club & Competitive Exam Forum Blueprints Included</span>
+                      <span>
+                        {subjectType === 'math'
+                          ? 'Live Web Grounding Active: GMAT Club & Quantitative Exam Forum Blueprints Included'
+                          : subjectType === 'english'
+                          ? 'Live Web Grounding Active: GMAT/GRE Verbal & Sentence Correction Blueprints Included'
+                          : 'Live Standard Grounding: BCS, Admission & Academic Exam Question Blueprints Included'}
+                      </span>
                     </div>
                   )}
                 </div>

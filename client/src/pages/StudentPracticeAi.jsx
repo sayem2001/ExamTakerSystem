@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import MathRenderer from '../components/MathRenderer';
 import ExplanationRenderer from '../components/ExplanationRenderer';
+import { SUBJECT_CONFIGS } from './admin/AdminAiPdfImport';
 import {
   Upload,
   FileText,
@@ -21,12 +22,27 @@ import {
   Key,
   Shield,
   ExternalLink,
+  Check,
 } from 'lucide-react';
 
 export const StudentPracticeAi = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+
+  // Subject Generator: 'math' | 'english' | 'universal'
+  const [subjectType, setSubjectType] = useState('math');
+  const currentSubjectConfig = SUBJECT_CONFIGS[subjectType] || SUBJECT_CONFIGS.math;
+
+  const handleSubjectChange = (newSubject) => {
+    if (newSubject === subjectType) return;
+    setSubjectType(newSubject);
+    const cfg = SUBJECT_CONFIGS[newSubject];
+    if (cfg) {
+      setTopic(cfg.defaultTopic);
+    }
+    setError('');
+  };
 
   // Mode: 'pdf' or 'paste'
   const [inputMode, setInputMode] = useState('pdf');
@@ -107,9 +123,27 @@ export const StudentPracticeAi = () => {
       }
       setFile(selected);
       setError('');
+      const cleanName = selected.name.replace(/\.(pdf|docx|doc)$/i, '').replace(/[-_]/g, ' ');
       if (!title) {
-        const cleanName = selected.name.replace(/\.(pdf|docx|doc)$/i, '').replace(/[-_]/g, ' ');
         setTitle(`${cleanName} - Practice Set`);
+      }
+
+      if (subjectType === 'english') {
+        if (/sentence\s*correction|parallel|modifier|grammar/i.test(cleanName)) {
+          setTopic('Sentence Correction & Grammar');
+        } else if (/critical\s*reasoning|argument|assumption|weaken/i.test(cleanName)) {
+          setTopic('Critical Reasoning');
+        } else if (/vocab|synonym|antonym/i.test(cleanName)) {
+          setTopic('Vocabulary & Analogy');
+        }
+      } else if (subjectType === 'universal') {
+        if (/বাংলা|সাহিত্য|ব্যাকরণ/i.test(cleanName)) {
+          setTopic('বাংলা ব্যাকরণ ও সাহিত্য');
+        } else if (/science|বিজ্ঞান/i.test(cleanName)) {
+          setTopic('সাধারণ বিজ্ঞান');
+        } else if (/ict|computer|তথ্য/i.test(cleanName)) {
+          setTopic('তথ্য ও যোগাযোগ প্রযুক্তি (ICT)');
+        }
       }
     }
   };
@@ -125,7 +159,7 @@ export const StudentPracticeAi = () => {
     }
 
     if (inputMode === 'pdf' && !file) {
-      setError('Please choose a PDF or Word (.docx) document containing your math problems or notes.');
+      setError('Please choose a PDF or Word (.docx) document containing your questions or study material.');
       return;
     }
     if (inputMode === 'paste' && (!pastedText || pastedText.trim().length < 20)) {
@@ -135,13 +169,14 @@ export const StudentPracticeAi = () => {
 
     try {
       setLoading(true);
-      setStatusMessage('Analyzing document and extracting problem concepts...');
+      setStatusMessage(`Analyzing document and extracting ${currentSubjectConfig.name} concepts...`);
 
       let payload;
       if (inputMode === 'pdf') {
         const formData = new FormData();
         formData.append('pdf', file);
         formData.append('topic', topic);
+        formData.append('subjectType', subjectType);
         formData.append('difficulty', difficulty);
         formData.append('questionCount', questionCount);
         formData.append('title', title || `${topic} AI Practice Test`);
@@ -150,13 +185,20 @@ export const StudentPracticeAi = () => {
         payload = {
           pastedText: pastedText.trim(),
           topic,
+          subjectType,
           difficulty,
           questionCount,
           title: title || `${topic} AI Practice Test`,
         };
       }
 
-      setStatusMessage('Gemini AI is synthesizing high-caliber multiple choice questions with clean LaTeX solutions...');
+      setStatusMessage(
+        subjectType === 'math'
+          ? 'Gemini AI is synthesizing high-caliber quantitative questions with clean LaTeX solutions...'
+          : subjectType === 'english'
+          ? 'Gemini AI is synthesizing verbal aptitude & sentence correction questions with nuanced explanations...'
+          : 'Gemini AI is synthesizing high-discrimination academic & BCS-standard questions with full explanations...'
+      );
       const res = await api.studentGeneratePractice(payload);
 
       if (res.success) {
@@ -207,7 +249,7 @@ export const StudentPracticeAi = () => {
             AI Practice Test Generator
           </h1>
           <p style={{ color: '#cbd5e1', fontSize: '1rem', maxWidth: '680px', lineHeight: 1.6 }}>
-            Upload your lecture PDF or paste math exercises. Our system synthesizes custom, trap-aware questions with step-by-step LaTeX explanations—strictly private and isolated to your account.
+            Upload lecture PDFs or paste questions for Math, English Verbal, or Universal subjects (Bangla, Science, ICT). Our system synthesizes custom, trap-aware questions with comprehensive explanations—strictly private and isolated to your account.
           </p>
         </div>
 
@@ -368,6 +410,98 @@ export const StudentPracticeAi = () => {
         <form onSubmit={handleGenerate}>
           <div className="glass-card" style={{ padding: '2rem', marginBottom: '2rem' }}>
             
+            {/* 3-WAY SPECIALIZED QUESTION GENERATOR SELECTOR */}
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sparkles size={18} color={currentSubjectConfig.accentColor} />
+                  <span>3 Specialized Question Generators</span>
+                </div>
+                <span style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  color: currentSubjectConfig.accentColor,
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  border: `1px solid ${currentSubjectConfig.accentColor}40`,
+                  padding: '3px 12px',
+                  borderRadius: '20px',
+                }}>
+                  Active: {currentSubjectConfig.name} ({currentSubjectConfig.badgeText})
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+                {Object.values(SUBJECT_CONFIGS).map((subj) => {
+                  const isSelected = subjectType === subj.id;
+                  return (
+                    <div
+                      key={subj.id}
+                      onClick={() => handleSubjectChange(subj.id)}
+                      style={{
+                        padding: '1.1rem 1.25rem',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                        background: isSelected ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.015)',
+                        border: isSelected ? `2px solid ${subj.accentColor}` : '1px solid var(--border-subtle)',
+                        boxShadow: isSelected ? `0 0 16px ${subj.accentColor}25` : 'none',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            width: '30px',
+                            height: '30px',
+                            borderRadius: '8px',
+                            background: `${subj.accentColor}25`,
+                            color: subj.accentColor,
+                            fontWeight: 800,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.9rem',
+                          }}>
+                            {subj.id === 'math' ? '∑' : subj.id === 'english' ? 'Aa' : 'ব'}
+                          </span>
+                          <div>
+                            <div style={{ fontSize: '0.92rem', fontWeight: 800, color: isSelected ? '#fff' : '#e2e8f0' }}>
+                              {subj.name}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: subj.accentColor, fontWeight: 700 }}>
+                              {subj.badgeText}
+                            </div>
+                          </div>
+                        </div>
+                        {isSelected ? (
+                          <div style={{
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '50%',
+                            background: subj.accentColor,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}>
+                            <Check size={12} color="#fff" />
+                          </div>
+                        ) : (
+                          <div style={{
+                            width: '18px',
+                            height: '18px',
+                            borderRadius: '50%',
+                            border: '1.5px solid #475569',
+                          }} />
+                        )}
+                      </div>
+                      <p style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.4, margin: 0 }}>
+                        {subj.tagline}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Input Selection Tabs */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1rem' }}>
               <button
@@ -456,7 +590,7 @@ export const StudentPracticeAi = () => {
                         Click to select PDF or Word DOCX document or drag and drop here
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                        Supports chapter PDFs, Word (.docx) notes, IBA / GMAT prep questions
+                        Supports chapter PDFs, Word (.docx) notes, and question sets for {currentSubjectConfig.name}
                       </div>
                     </div>
                   )}
@@ -465,13 +599,13 @@ export const StudentPracticeAi = () => {
             ) : (
               <div style={{ marginBottom: '2rem' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  Paste Math Problems, Theory, or Curriculum Text
+                  Paste {currentSubjectConfig.name} Problems, Theory, or Exercise Text
                 </label>
                 <textarea
                   className="form-input"
                   rows={8}
                   style={{ width: '100%', resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
-                  placeholder="Paste problem statements, math exercises, textbook questions, or formula notes here..."
+                  placeholder={currentSubjectConfig.placeholder}
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
                 />
@@ -482,16 +616,38 @@ export const StudentPracticeAi = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  Topic / Subject
+                  {currentSubjectConfig.name} Topic / Focus
                 </label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Profit and Loss, Arithmetic, Geometry"
+                  placeholder={`e.g. ${currentSubjectConfig.defaultTopic}`}
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   required
                 />
+                {currentSubjectConfig.quickTopics && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '6px' }}>
+                    {currentSubjectConfig.quickTopics.slice(0, 4).map((qt) => (
+                      <button
+                        key={qt}
+                        type="button"
+                        onClick={() => setTopic(qt)}
+                        style={{
+                          background: topic === qt ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                          border: topic === qt ? '1px solid #818cf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                          color: topic === qt ? '#a5b4fc' : '#cbd5e1',
+                          padding: '1px 7px',
+                          borderRadius: '10px',
+                          fontSize: '0.7rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {qt}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -503,9 +659,9 @@ export const StudentPracticeAi = () => {
                   value={difficulty}
                   onChange={(e) => setDifficulty(e.target.value)}
                 >
-                  <option value="easy">Easy (Direct Formula Application)</option>
-                  <option value="medium">Medium (Competitive / Standard Exam)</option>
-                  <option value="hard">Hard (GMAT / IBA Advanced Trap Archetypes)</option>
+                  <option value="easy">🟢 {currentSubjectConfig.difficulties.easy.title}</option>
+                  <option value="medium">🟡 {currentSubjectConfig.difficulties.medium.title}</option>
+                  <option value="hard">🔴 {currentSubjectConfig.difficulties.hard.title}</option>
                 </select>
               </div>
 
@@ -533,7 +689,7 @@ export const StudentPracticeAi = () => {
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Ch 6 Personal Sprint"
+                  placeholder="e.g. Sprint Practice Set"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />

@@ -4,7 +4,7 @@ const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const SystemSetting = require('../models/SystemSetting');
-const { fetchGmatModificationIdeas } = require('./webSearchService');
+const { fetchGmatModificationIdeas, fetchSubjectModificationIdeas } = require('./webSearchService');
 const { extractStructuredQuestionsFromText } = require('./pdfQuestionParser');
 
 /**
@@ -516,6 +516,7 @@ const extractAllQuestionsFromDocument = async ({
   pdfPath = null,
   pdfText = '',
   targetTopic = '',
+  subjectType = 'math',
   apiKey = '',
   allowSystemFallback = true,
 }) => {
@@ -527,10 +528,16 @@ const extractAllQuestionsFromDocument = async ({
     throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings.');
   }
 
-  const genAI = new GoogleGenerativeAI(activeKey);
-  const detectedTopic = targetTopic || 'Profit and Loss';
+  const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
+    ? (subjectType || '').toLowerCase()
+    : 'math';
 
-  console.log(`[Phase 1] Initiating full document extraction for topic: "${detectedTopic}"...`);
+  let defaultFallbackTopic = 'Profit and Loss';
+  if (normalizedSubjectType === 'english') defaultFallbackTopic = 'English Language & Verbal Reasoning';
+  if (normalizedSubjectType === 'universal') defaultFallbackTopic = 'General Studies & Academic Topics';
+  const detectedTopic = targetTopic || defaultFallbackTopic;
+
+  console.log(`[Phase 1] Initiating full document extraction for [${normalizedSubjectType.toUpperCase()}] topic: "${detectedTopic}"...`);
 
   // Step 1: Algorithmic extraction across all sections and answer key tables
   let algoQuestions = [];
@@ -575,7 +582,65 @@ const extractAllQuestionsFromDocument = async ({
     const chunkText = textChunks[cIdx];
     console.log(`[Gemini Engine] Processing segment ${cIdx + 1}/${textChunks.length} (${chunkText.length} chars)...`);
 
-    const chunkPrompt = `
+    let chunkPrompt = '';
+    if (normalizedSubjectType === 'english') {
+      chunkPrompt = `
+You are an expert English language and verbal aptitude examination auditor.
+Read this segment (Segment ${cIdx + 1} of ${textChunks.length}) of an examination booklet covering "${detectedTopic}".
+
+CRITICAL TASK:
+1. Filter out pure theoretical grammar rules, reading passage instructions, general editorial commentary, and answer keys without context.
+2. EXTRACT EVERY SINGLE QUESTION OR VERBAL EXERCISE present in this text segment (Sentence Correction, Critical Reasoning, Reading Comprehension questions, Fill in the blanks, Idioms/Prepositions, Vocabulary/Synonyms-Antonyms, Spotting Errors).
+3. For each question:
+   - "questionText": Full sentence or question prompt with underlined or highlighted target portions.
+   - "caseType": Categorize the specific verbal case (e.g. "Sentence Correction - Subject-Verb Agreement", "Critical Reasoning - Assumption", "Vocabulary in Context", "Idiomatic Preposition", "Parallelism & Modifiers").
+   - "coreConcept": Concise 3-6 word summary of verbal or grammar rule.
+   - "options": Multiple choice options if present (e.g. [{"key": "A", "text": "..."}, ...]).
+   - "correctOption": Correct letter if indicated in answer key or solution, or null.
+   - "hasNumericalValues": false.
+
+Output ONLY a JSON array of question objects:
+[
+  {
+    "questionText": "...",
+    "caseType": "...",
+    "coreConcept": "...",
+    "options": [{"key": "A", "text": "..."}, ...],
+    "correctOption": "A",
+    "hasNumericalValues": false
+  }
+]
+`;
+    } else if (normalizedSubjectType === 'universal') {
+      chunkPrompt = `
+You are an expert academic and competitive examination auditor (for subjects such as Bangla Literature & Grammar, General Science, Bangladesh & International Affairs, ICT, Social Science, History, etc.).
+Read this segment (Segment ${cIdx + 1} of ${textChunks.length}) of an examination booklet covering "${detectedTopic}".
+
+CRITICAL TASK:
+1. Filter out pure textbook paragraph explanations, syllabus overviews, and general book commentary.
+2. EXTRACT EVERY SINGLE QUESTION OR MULTIPLE-CHOICE ITEM present in this text segment in its ORIGINAL LANGUAGE (Bengali/বাংলা or English as written in the document). Preserve Unicode Bengali characters flawlessly without any corruption!
+3. For each question:
+   - "questionText": Full question stem (including multi-statement evaluation prompts like 'i. ..., ii. ..., iii. ... নিচের কোনটি সঠিক?').
+   - "caseType": Categorize the specific topic or question case (e.g. "বাংলা ব্যাকরণ - সন্ধি", "সাহিত্য ও রচয়িতা", "General Science - Laws of Motion", "ICT - Computer Networking", "Multi-statement Evaluation").
+   - "coreConcept": Concise 3-6 word summary of the concept.
+   - "options": Multiple choice options if present (e.g. [{"key": "A", "text": "..."}, ...]).
+   - "correctOption": Correct letter or option key if indicated, or null.
+   - "hasNumericalValues": false.
+
+Output ONLY a JSON array of question objects:
+[
+  {
+    "questionText": "...",
+    "caseType": "...",
+    "coreConcept": "...",
+    "options": [{"key": "A", "text": "..."}, ...],
+    "correctOption": "A",
+    "hasNumericalValues": false
+  }
+]
+`;
+    } else {
+      chunkPrompt = `
 You are an academic curriculum auditor.
 Read this segment (Segment ${cIdx + 1} of ${textChunks.length}) of an examination booklet covering "${detectedTopic}".
 
@@ -588,7 +653,7 @@ CRITICAL TASK:
    - "coreConcept": Concise 3-6 word summary of mathematical rule.
    - "options": Multiple choice options if present (e.g. [{"key": "A", "text": "100"}, ...]).
    - "correctOption": Correct letter if indicated in answer key or solution, or null.
-   - "hasNumericalValues": boolean.
+   - "hasNumericalValues": true.
 
 Output ONLY a JSON array of question objects:
 [
@@ -602,6 +667,7 @@ Output ONLY a JSON array of question objects:
   }
 ]
 `;
+    }
 
     try {
       const contents = [chunkText, chunkPrompt];
@@ -653,10 +719,17 @@ Output ONLY a JSON array of question objects:
   const uniqueQuestions = deduplicateQuestions(combined);
 
   // Standardize questions and re-index
+  const defaultCaseType =
+    normalizedSubjectType === 'english'
+      ? 'General Verbal Exercise'
+      : normalizedSubjectType === 'universal'
+      ? 'General Subject Topic'
+      : 'General Quantitative Problem';
+
   const standardizedQuestions = uniqueQuestions.map((q, idx) => ({
     originalIndex: idx + 1,
     questionText: q.questionText || '',
-    caseType: q.caseType || 'General Quantitative Problem',
+    caseType: q.caseType || defaultCaseType,
     coreConcept: q.coreConcept || `${detectedTopic} Application`,
     options: Array.isArray(q.options) && q.options.length >= 2 ? q.options : (
       q.options || [
@@ -673,11 +746,12 @@ Output ONLY a JSON array of question objects:
   const distinctCases = [...new Set(standardizedQuestions.map((q) => q.caseType).filter(Boolean))];
 
   console.log(
-    `[Gemini Engine] Phase 1 Complete: Extracted ${standardizedQuestions.length} complete questions across ${distinctCases.length} distinct cases from document (${modelUsedForExtraction}).`
+    `[Gemini Engine] Phase 1 Complete: Extracted ${standardizedQuestions.length} complete [${normalizedSubjectType.toUpperCase()}] questions across ${distinctCases.length} distinct cases from document (${modelUsedForExtraction}).`
   );
 
   return {
     success: true,
+    subjectType: normalizedSubjectType,
     modelUsed: modelUsedForExtraction,
     detectedTopic,
     totalExtracted: standardizedQuestions.length,
@@ -738,18 +812,22 @@ const selectDiverseSourceQuestions = (extractedQuestions, targetCount) => {
 /**
  * =========================================================================
  * TASK 2: GENERATE SELECTED NUMBER OF QUESTIONS WITH DIVERSITY & DIFFICULTY
- * - Easy: Modify question's numerical values only; preserve structure & context.
+ * - Easy: Modify question's values / vocabulary only; preserve structure & context.
  * - Medium: Entire question intact with slight modifications (rephrasing,
- *   different variables, or adding contextual info while hiding details).
- * - Hard: GMAT-level difficulty within topic scope. Significant modifications
- *   into GMAT Problem Solving & Data Sufficiency. Searches GMAT forums/resources
- *   for real-world modification patterns and tricky traps.
+ *   different variables, multi-statement options, or adding contextual info).
+ * - Hard:
+ *   * Math: GMAT Problem Solving & Data Sufficiency with web forum research.
+ *   * English: GMAT/GRE Verbal (Sentence Correction & Critical Reasoning).
+ *   * Universal: High-discrimination BCS & University Admission standard (NON-GMAT).
  * =========================================================================
  */
 const generateMCQsFromExtracted = async ({
   extractedQuestions = [],
-  targetTopic = 'General Mathematics',
-  targetDifficulty = 'medium', // 'easy' | 'medium' | 'hard'
+  targetTopic = '',
+  topic = '',
+  targetDifficulty = '',
+  difficulty = '',
+  subjectType = 'math', // 'math' | 'english' | 'universal'
   questionCount = 30,
   apiKey = '',
   pdfPath = null,
@@ -758,7 +836,17 @@ const generateMCQsFromExtracted = async ({
 }) => {
   const activeKey = await getActiveApiKey(apiKey, allowSystemFallback);
   const targetCount = Math.max(1, parseInt(questionCount, 10) || 30);
-  const diffNormalized = (targetDifficulty || 'medium').toLowerCase();
+  const diffNormalized = (targetDifficulty || difficulty || 'medium').toLowerCase();
+
+  const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
+    ? (subjectType || '').toLowerCase()
+    : 'math';
+
+  let defaultTopic = 'Profit and Loss';
+  if (normalizedSubjectType === 'english') defaultTopic = 'English Language & Verbal Reasoning';
+  if (normalizedSubjectType === 'universal') defaultTopic = 'General Studies & Academic Topics';
+
+  const requestedTopic = targetTopic || topic || defaultTopic;
 
   if (!activeKey) {
     if (!allowSystemFallback) {
@@ -769,19 +857,20 @@ const generateMCQsFromExtracted = async ({
 
   // If extracted questions are not supplied, extract them first
   let sourceQuestions = extractedQuestions;
-  let detectedTopic = targetTopic;
+  let detectedTopic = requestedTopic;
   let distinctCases = [];
 
   if (!sourceQuestions || sourceQuestions.length === 0) {
-    console.log('[Gemini Engine] No pre-extracted questions provided; running Phase 1 extraction first...');
+    console.log(`[Gemini Engine] No pre-extracted questions provided; running Phase 1 extraction for [${normalizedSubjectType.toUpperCase()}] first...`);
     const extractRes = await extractAllQuestionsFromDocument({
       pdfPath,
       pdfText,
-      targetTopic,
+      targetTopic: requestedTopic,
+      subjectType: normalizedSubjectType,
       apiKey: activeKey,
     });
     sourceQuestions = extractRes.questions;
-    detectedTopic = extractRes.detectedTopic || targetTopic;
+    detectedTopic = extractRes.detectedTopic || requestedTopic;
     distinctCases = extractRes.distinctCases || [];
   } else {
     distinctCases = [...new Set(sourceQuestions.map((q) => q.caseType).filter(Boolean))];
@@ -796,21 +885,96 @@ const generateMCQsFromExtracted = async ({
   // Select diverse source questions across all distinct problem cases
   const diverseSubset = selectDiverseSourceQuestions(sourceQuestions, targetCount);
 
-  // If Hard difficulty, initiate live web research into GMAT forums & competitive exam archives
-  let gmatResearchContext = '';
+  // If Hard difficulty, initiate live web research tailored to subjectType
+  let subjectResearchContext = '';
   let webSearchData = null;
   if (diffNormalized === 'hard') {
     try {
-      webSearchData = await fetchGmatModificationIdeas(detectedTopic);
-      gmatResearchContext = webSearchData.formattedResearchNotes;
+      webSearchData = await fetchSubjectModificationIdeas(detectedTopic, normalizedSubjectType);
+      subjectResearchContext = webSearchData.formattedResearchNotes;
     } catch (searchErr) {
-      console.warn('[Gemini Engine] Web search for GMAT patterns failed, utilizing curated blueprints:', searchErr.message);
+      console.warn(`[Gemini Engine] Web search for ${normalizedSubjectType} patterns failed, utilizing curated blueprints:`, searchErr.message);
     }
   }
 
-  // Rules based on exact user specification
-  const difficultyRules = {
-    easy: `DIFFICULTY: EASY (VALUE MODIFICATION ONLY)
+  // Rules based on exact subject type and user specification
+  let difficultyRules = {};
+
+  if (normalizedSubjectType === 'english') {
+    difficultyRules = {
+      easy: `DIFFICULTY: EASY (DIRECT VOCABULARY & GRAMMAR RULE VARIATION)
+1. TAKE THE GIVEN QUESTIONS AND VERBAL ARCHETYPES AS BLUEPRINTS.
+2. SIMPLY MODIFY THE VOCABULARY, SUBJECT-NOUNS, OR DIRECT CONTEXT WHILE PRESERVING THE EXACT SAME GRAMMATICAL RULE OR VOCABULARY CONCEPT:
+   - Keep the sentence structure, target rule (e.g. singular subject with singular verb, or basic preposition pair) 100% INTACT.
+   - If generating multiple questions, formulate distinct verbal variations across the diverse question archetypes.
+3. Formulate 4 clean options (A, B, C, D) and accurately identify the correctOption.
+4. Provide a structured explanation breaking down: Sentence / Question Breakdown, Governing Grammar/Language Rule, Option Analysis, and Conclusion.
+5. Tag each question with "modificationApplied": "Vocabulary/Subject variation: [briefly state change]".`,
+
+      medium: `DIFFICULTY: MEDIUM (CLAUSE INVERSION, IDIOMATIC NUANCES & DECEPTIVE PHRASING)
+1. TAKE THE GIVEN QUESTIONS AND VERBAL ARCHETYPES AS BLUEPRINTS.
+2. KEEP THE CORE CONCEPT INTACT, BUT APPLY MODIFICATIONS:
+   a) Invert clauses, use compound/complex sentences, or introduce modifying phrases between subject and verb.
+   b) Test idiomatic usage, phrasal verbs, prepositional nuances, or pronoun antecedent ambiguity.
+   c) Add subtle distractors that mimic common colloquial mistakes.
+   d) If generating multiple questions, formulate distinct concept-preserving problem variations across the diverse archetypes.
+3. Formulate 4 realistic options (A, B, C, D) with plausible distractors and identify the correctOption.
+4. Provide a detailed explanation: Sentence Structure Analysis, Key Rule & Idiom Nuance, Distractor Elimination, and Conclusion.
+5. Tag each question with "modificationApplied": "Sentence restructuring & nuance: [stated modification]".`,
+
+      hard: `DIFFICULTY: HARD (GMAT/GRE VERBAL STANDARD - SENTENCE CORRECTION & CRITICAL REASONING)
+1. GENERATE GMAT/GRE-LEVEL VERBAL QUESTIONS STRICTLY WITHIN TOPIC SCOPE ("${detectedTopic}").
+2. SIGNIFICANTLY MODIFY AND ELEVATE ORIGINAL QUESTIONS TO ELITE VERBAL STANDARDS:
+   a) Sentence Correction: Strict parallelism (correlative conjunctions, lists), dangling/misplaced modifiers, subjunctive mood, comparison logic ('like' vs 'as', 'more than'), and concise phrasing avoiding wordiness.
+   b) Critical Reasoning: Argument passages testing unstated assumptions, strengthening/weakening evidence, boldface role, or paradox resolution.
+   c) Tricky Distractor Traps: Options that fix one error while introducing a subtle secondary error, or distractors that sound fluent but violate strict grammatical parallelism.
+   d) If generating multiple questions, formulate distinct high-tier competitive problem variations across diverse archetypes.
+3. APPLY VERBAL RESEARCH BLUEPRINTS:
+${subjectResearchContext || 'Apply GMAT 700+ Verbal parallelism, modifier, and critical reasoning standards.'}
+4. Formulate 4 or 5 options (A-D or A-E) and accurately identify the correctOption.
+5. Rigorous verbal solution breakdown: Argument/Sentence Breakdown, Core Linguistic/Logic Rule, Step-by-Step Option Elimination (why each wrong choice fails), Conclusion, and Trap/Pitfall Alert.
+6. Tag each question with "modificationApplied": "GMAT/GRE Verbal transformation: [archetype and trap structure]".`,
+    };
+  } else if (normalizedSubjectType === 'universal') {
+    difficultyRules = {
+      easy: `DIFFICULTY: EASY (DIRECT CONCEPTUAL & FACTUAL VARIATION - NO GMAT FORMAT)
+1. TAKE THE GIVEN QUESTIONS AND TOPIC CONCEPTS AS BLUEPRINTS.
+2. PRESERVE THE EXACT SUBJECT AND LANGUAGE (IF BENGALI/বাংলা, WRITE IN ELEGANT ACCURATE BENGALI; IF ENGLISH, WRITE IN ENGLISH).
+3. SIMPLY SUBSTITUTE OR VARY THE SPECIFIC ENTITY, POET/AUTHOR, YEAR, SPECIES, TERM, OR EVENT WHILE RETAINING THE IDENTICAL CORE DEFINITION OR LAW:
+   - Keep the structural framing and relationship 100% INTACT.
+   - If generating multiple questions, formulate distinct conceptual variations across the diverse topic cases.
+4. Provide 4 clear options (A, B, C, D) and accurately identify the correctOption.
+5. Explanation broken down into: মূল ধারণা (Concept Overview), সঠিক উত্তরের ব্যাখ্যা (Justification), বিকল্পসমূহের বিশ্লেষণ (Distractor Notes), and চূড়ান্ত সিদ্ধান্ত (Conclusion).
+6. Tag each question with "modificationApplied": "Direct factual/conceptual substitution: [stated change]".`,
+
+      medium: `DIFFICULTY: MEDIUM (CONCEPTUAL APPLICATION, RELATIONSHIPS & MULTI-STATEMENT EVALUATION - NO GMAT FORMAT)
+1. TAKE THE GIVEN QUESTIONS AND TOPIC SCOPE AS BLUEPRINTS IN ITS NATIVE LANGUAGE (Bangla or English).
+2. APPLY MODIFICATIONS REQUIRING CRITICAL UNDERSTANDING (STANDARD BCS, UNIVERSITY ADMISSION & ACADEMIC BOARD EXAM LEVEL - DO NOT USE GMAT FORMAT):
+   a) Frame questions as cause-and-effect, comparative analysis, or contextual scenarios.
+   b) Include Multi-Statement Evaluation questions (বহুপদী সমাপ্তিসূচক প্রশ্ন): Statements i, ii, iii with options like: A) i ও ii, B) ii ও iii, C) i ও iii, D) i, ii ও iii.
+   c) Formulate plausible distractors based on commonly confused terms, grammatical homonyms (e.g. ণ-ত্ব ও ষ-ত্ব বিধান, সমাস, কারক), or related historical/scientific milestones.
+   d) If generating multiple questions, formulate distinct concept-preserving problem variations across diverse archetypes.
+3. Provide 4 well-balanced options (A, B, C, D) and accurately identify the correctOption.
+4. Provide an in-depth explanation: বিষয়বস্তু ও পটভূমি (Context & Principles), সঠিকতার প্রমাণ (Logical Verification), ভুল বিকল্প বর্জনের কারণ (Why distractors are incorrect), and চূড়ান্ত সিদ্ধান্ত (Conclusion).
+5. Tag each question with "modificationApplied": "Conceptual application & multi-statement format: [stated change]".`,
+
+      hard: `DIFFICULTY: HARD (HIGH-DISCRIMINATION COMPETITIVE EXAM MASTERY - BCS / UNIVERSITY ADMISSION STANDARD - NO GMAT FORMAT)
+1. GENERATE ADVANCED, HIGH-DISCRIMINATION QUESTIONS STRICTLY WITHIN TOPIC SCOPE ("${detectedTopic}").
+2. DO NOT USE GMAT FORMAT OR GMAT TERMINOLOGY (NO DATA SUFFICIENCY, NO GMAT BUSINESS-SCHOOL TRAPS). Instead, apply the highest tier of national competitive examinations (BCS Cadre, Premier Public University Admission A/B/C/D units, Advanced Board Examinations):
+   a) Deep Conceptual Discrimination: Questions testing subtle exceptions to grammar rules (ব্যতিক্রমী নিয়ম), obscure literary attributions/manuscripts, nuanced scientific mechanisms, or constitutional/geopolitical article clauses.
+   b) Multi-Tier Assertion & Synthesis: Synthesize multiple interrelated facts or rules into a single challenging evaluation (e.g. 'নিচের কোন তথ্যগুচ্ছটি সম্পূর্ণ নির্ভুল?').
+   c) Highly Deceptive Distractor Traps: Distractors that differ by a single subtle nuance, chronological inversion, or deceptive phonetic/morphological similarities.
+   d) If generating multiple questions, formulate distinct high-tier competitive problem variations across diverse archetypes.
+3. INCORPORATE RESEARCH BLUEPRINTS:
+${subjectResearchContext || 'Apply top-tier BCS and University Admission discrimination standards.'}
+4. Write in the native language of the source document (Bangla or English) with flawless grammar and spelling.
+5. Provide comprehensive master-class explanation: মূল প্রতিপাদ্য ও উৎস (Core Thesis & Source Reference), পূর্ণাঙ্গ যৌক্তিক বিশ্লেষণ (Comprehensive Analysis), বিকল্পসমূহের তুলনামূলক পর্যালোচনা (Distractor Comparison), and ভ্রান্ত ধারণা ও ফাঁদ সতর্কতা (Common Misconceptions & Trap Alert).
+6. Tag each question with "modificationApplied": "High-discrimination competitive synthesis: [stated challenge and archetype]".`,
+    };
+  } else {
+    // Default: Mathematics with GMAT Quantitative Problem Solving & Data Sufficiency
+    difficultyRules = {
+      easy: `DIFFICULTY: EASY (VALUE MODIFICATION ONLY)
 1. TAKE THE GIVEN QUESTIONS AND PROBLEM ARCHETYPES AS BLUEPRINTS.
 2. SIMPLY MODIFY THE QUESTION'S VALUES:
    - Change the numerical figures, prices, percentages, quantities, or dimensions (e.g. change $960 to $1,440, 20% to 25%, 900 grams to 850 grams).
@@ -821,7 +985,7 @@ const generateMCQsFromExtracted = async ({
 5. Provide a detailed, pedagogical step-by-step mathematical explanation breaking down given data, core formula, numbered derivation steps, and conclusion.
 6. Tag each question with "modificationApplied": "Value modification: [briefly state values changed]".`,
 
-    medium: `DIFFICULTY: MEDIUM (CONCEPT-PRESERVING SLIGHT MODIFICATIONS)
+      medium: `DIFFICULTY: MEDIUM (CONCEPT-PRESERVING SLIGHT MODIFICATIONS)
 1. TAKE THE GIVEN QUESTIONS AND PROBLEM ARCHETYPES AS BLUEPRINTS.
 2. THE ENTIRE QUESTION AND TOPIC MUST REMAIN INTACT, BUT APPLY SLIGHT MODIFICATIONS:
    a) Rephrase the question wording or context slightly.
@@ -832,7 +996,7 @@ const generateMCQsFromExtracted = async ({
 4. Provide a thorough, step-by-step mathematical derivation breaking down the problem conceptually, algebraically, and highlighting pitfalls.
 5. Tag each question with "modificationApplied": "Slight modification: [rephrased / inverted variable / added intermediate step]".`,
 
-    hard: `DIFFICULTY: HARD (GMAT-LEVEL TRANSFORMATION WITH RESEARCHED COMPETITIVE EXAM IDEAS)
+      hard: `DIFFICULTY: HARD (GMAT-LEVEL TRANSFORMATION WITH RESEARCHED COMPETITIVE EXAM IDEAS)
 1. GENERATE GMAT-LEVEL DIFFICULTY QUESTIONS THAT REMAIN STRICTLY WITHIN THE TOPIC'S SCOPE ("${detectedTopic}").
 2. READ THE ORIGINAL QUESTIONS AND MAKE SIGNIFICANT MODIFICATIONS TO PRODUCE GMAT-TYPE QUESTIONS:
    a) GMAT Problem Solving: Multi-step algebraic constraints, deceptive trap phrasing, percentage base confusion, and higher-order quantitative reasoning.
@@ -840,12 +1004,13 @@ const generateMCQsFromExtracted = async ({
    c) Tricky Trap Distractors: Craft plausible distractor options that correspond to common GMAT traps (e.g., calculating percentage on cost instead of selling price, sign errors, off-by-one errors).
    d) If generating multiple questions, formulate distinct high-tier competitive problem variations across the diverse problem archetypes.
 3. APPLY THE IDEAS GATHERED FROM WEBSITES, FORUMS (GMAT CLUB, BEAT THE GMAT), AND COMPETITIVE EXAM ARCHIVES:
-${gmatResearchContext || 'Apply GMAT 700-level multi-constraint modeling and Data Sufficiency formats.'}
+${subjectResearchContext || 'Apply GMAT 700-level multi-constraint modeling and Data Sufficiency formats.'}
 4. Options can be 4 or 5 choices (A-D or A-E standard GMAT format).
 5. Accurately identify the correctOption.
 6. Provide an in-depth, rigorous GMAT-style solution broken down into: Problem Breakdown & Given Data, Governing Formula, Step-by-Step Derivation, Conclusion, and Trap/Pitfall Alert.
 7. Tag each question with "modificationApplied": "GMAT-level transformation: [GMAT Problem Solving / Data Sufficiency archetype with trap structure]".`,
-  };
+    };
+  }
 
   const selectedRule = difficultyRules[diffNormalized] || difficultyRules.medium;
   const temp = diffNormalized === 'easy' ? 0.15 : diffNormalized === 'medium' ? 0.3 : 0.45;
@@ -855,28 +1020,44 @@ ${gmatResearchContext || 'Apply GMAT 700-level multi-constraint modeling and Dat
     .map((q, idx) => `[Source Question ${idx + 1}] (Case: ${q.caseType})\n${q.questionText}`)
     .join('\n\n');
 
-  const fetchBatch = async (countToFetch, startIdx = 1, excludeStatements = []) => {
-    let exclusionText = '';
-    if (excludeStatements.length > 0) {
-      exclusionText = `\nDO NOT duplicate these already generated statements:\n- ${excludeStatements.slice(0, 5).join('\n- ')}\n`;
-    }
+  let architectRole = `You are an elite competitive examination architect specializing in quantitative mathematics (IBA, CAT, and GMAT assessment design).`;
+  if (normalizedSubjectType === 'english') {
+    architectRole = `You are an elite verbal aptitude and English language examination architect (IBA, SAT, GRE, GMAT Verbal, and BCS English assessment design).`;
+  } else if (normalizedSubjectType === 'universal') {
+    architectRole = `You are an elite academic and competitive examination architect (BCS, Premier University Admission, and Academic Board assessment design). Formulate questions in the exact language of the source topic (Bengali/বাংলা or English as supplied) with pristine grammar, zero formatting artifacts, and clear option labels. DO NOT USE GMAT FORMAT.`;
+  }
 
-    const promptText = `
-You are an elite competitive examination architect specializing in IBA, CAT, and GMAT assessment design.
-You have been provided with an extracted list of source questions from an examination document covering "${detectedTopic}".
-
-DIVERSITY REQUIREMENT:
-The questions provided below represent diverse problem cases (${distinctCases.join(', ')}).
-Ensure the generated questions cover a balanced, diverse range of these question types or cases!
-
-SPECIFIC DIFFICULTY CONDITION:
-${selectedRule}
-${exclusionText}
-
-QUANTITY & QUALITY MANDATE:
-- Generate EXACTLY ${countToFetch} questions (numbered ${startIdx} to ${startIdx + countToFetch - 1}).
-- Use clean LaTeX for all mathematical expressions (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 25%).
-- When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\$).
+  let explanationInstructions = '';
+  if (normalizedSubjectType === 'english') {
+    explanationInstructions = `
+- CRITICAL EXPLANATION MANDATE:
+  Break every solution down into these exact structured sections:
+  ### Sentence & Argument Breakdown
+  - Break down the underlying sentence structure, clauses, or argument components.
+  ### Core Grammar / Verbal Rule
+  - State the governing grammatical rule, idiom standard, or logic principle.
+  ### Step-by-Step Option Elimination
+  - Explicitly explain why each incorrect option (distractor) fails (e.g. parallelism failure, pronoun ambiguity, modifier error).
+  ### Conclusion
+  - State the correct option definitively.
+  ### Trap & Pitfall Alert
+  - Highlight the deceptive trap that distractors are built upon.`;
+  } else if (normalizedSubjectType === 'universal') {
+    explanationInstructions = `
+- CRITICAL EXPLANATION MANDATE (IN THE NATIVE LANGUAGE OF THE QUESTION, E.G. BENGALI OR ENGLISH):
+  Break every solution down into these exact structured sections:
+  ### বিষয়বস্তুর সারসংক্ষেপ / Concept Overview
+  - মূল ধারণা ও পটভূমি উপস্থাপন করুন।
+  ### মূল নীতি ও সঠিকতা / Key Principle & Justification
+  - সঠিক উত্তরের পক্ষে সুনির্দিষ্ট ঐতিহাসিক, ব্যাকরণিক, বৈজ্ঞানিক বা তাত্ত্বিক প্রমাণ ও তথ্য দিন।
+  ### বিকল্পসমূহের বিশ্লেষণ / Distractor Analysis
+  - অন্যান্য অপশনগুলো কেন সঠিক নয় তার কারণ ব্যাখ্যা করুন।
+  ### চূড়ান্ত সিদ্ধান্ত / Conclusion
+  - নিশ্চিতভাবে সঠিক অপশনটি উল্লেখ করুন।
+  ### পরীক্ষা সতর্কতা ও বিভ্রান্তি / Exam Tip & Trap Alert
+  - শিক্ষার্থীরা সচরাচর যে ভুলে বিভ্রান্ত হয় তা নির্দেশ করুন।`;
+  } else {
+    explanationInstructions = `
 - CRITICAL EXPLANATION MANDATE (HIGHLY REFINED, DETAILED PEDAGOGICAL BREAKDOWN):
   The "explanation" field must NEVER be an unformatted or rushed blob of text.
   Break every solution down into these exact structured sections:
@@ -892,7 +1073,33 @@ QUANTITY & QUALITY MANDATE:
   ### Conclusion
   - State the definitive calculated value and explicitly confirm which Option it matches.
   ### Trap & Common Mistake Alert
-  - Explain the deceptive trap that distractors are built upon and why students pick the wrong option.
+  - Explain the deceptive trap that distractors are built upon and why students pick the wrong option.`;
+  }
+
+  const fetchBatch = async (countToFetch, startIdx = 1, excludeStatements = []) => {
+    let exclusionText = '';
+    if (excludeStatements.length > 0) {
+      exclusionText = `\nDO NOT duplicate these already generated statements:\n- ${excludeStatements.slice(0, 5).join('\n- ')}\n`;
+    }
+
+    const promptText = `
+${architectRole}
+You have been provided with an extracted list of source questions from an examination document covering "${detectedTopic}".
+
+DIVERSITY REQUIREMENT:
+The questions provided below represent diverse problem cases (${distinctCases.join(', ')}).
+Ensure the generated questions cover a balanced, diverse range of these question types or cases!
+
+SPECIFIC DIFFICULTY CONDITION:
+${selectedRule}
+${exclusionText}
+
+QUANTITY & QUALITY MANDATE:
+- Generate EXACTLY ${countToFetch} questions (numbered ${startIdx} to ${startIdx + countToFetch - 1}).
+- Use clean LaTeX for all mathematical expressions if applicable (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 25%).
+- When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\$).
+- NEVER corrupt Bengali (বাংলা) or non-English characters into question marks or broken escapes. Output authentic Unicode text.
+${explanationInstructions}
 - NEVER include internal draft thoughts or phrases like "Wait, let's check" or "No, let's adjust".
 
 SOURCE QUESTIONS FROM DOCUMENT (DIVERSE CASES):
@@ -903,7 +1110,7 @@ ${sourceQuestionsText}
 Output the entire response as a valid JSON array of question objects:
 [
   {
-    "questionText": "Question statement with clean LaTeX...",
+    "questionText": "Question statement...",
     "difficulty": "${diffNormalized}",
     "topic": "${detectedTopic}",
     "sourceQuestionIndex": 1,
@@ -916,7 +1123,7 @@ Output the entire response as a valid JSON array of question objects:
       {"key": "D", "text": "Option D"}
     ],
     "correctOption": "A",
-    "explanation": "Step-by-step mathematical explanation..."
+    "explanation": "Detailed explanation..."
   }
 ]
 `;
@@ -939,7 +1146,7 @@ Output the entire response as a valid JSON array of question objects:
   };
 
   console.log(
-    `[Gemini Engine] Generating ${targetCount} ${diffNormalized.toUpperCase()} questions for "${detectedTopic}" with diverse case coverage...`
+    `[Gemini Engine] Generating ${targetCount} [${normalizedSubjectType.toUpperCase()}] ${diffNormalized.toUpperCase()} questions for "${detectedTopic}" with diverse case coverage...`
   );
 
   let allQuestions = [];
@@ -983,10 +1190,11 @@ Output the entire response as a valid JSON array of question objects:
     finalQuestions = finalQuestions.slice(0, targetCount);
   }
 
-  console.log(`[Gemini Engine] Successfully generated ${finalQuestions.length} questions using ${lastModelUsed}.`);
+  console.log(`[Gemini Engine] Successfully generated ${finalQuestions.length} [${normalizedSubjectType.toUpperCase()}] questions using ${lastModelUsed}.`);
 
   return {
     success: true,
+    subjectType: normalizedSubjectType,
     modelUsed: lastModelUsed,
     detectedTopic,
     totalExtracted: finalQuestions.length,
@@ -994,6 +1202,7 @@ Output the entire response as a valid JSON array of question objects:
     distinctCasesCovered: distinctCases,
     searchGrounded: diffNormalized === 'hard',
     webSearchInsights: webSearchData ? {
+      subjectType: normalizedSubjectType,
       liveSnippetsCount: webSearchData.liveSnippetsFound,
       queriesUsed: webSearchData.queriesUsed,
       sampleSnippets: webSearchData.liveSnippets.slice(0, 3),
@@ -1007,24 +1216,40 @@ Output the entire response as a valid JSON array of question objects:
 const generateMCQsWithGemini = async ({
   pdfPath = null,
   pdfText = '',
-  targetTopic = 'General Mathematics',
+  targetTopic = '',
+  topic = '',
+  subjectType = 'math',
   targetDifficulty = 'medium',
+  difficulty = '',
   questionCount = 30,
   apiKey = '',
 }) => {
+  const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
+    ? (subjectType || '').toLowerCase()
+    : 'math';
+
+  let defaultTopic = 'Profit and Loss';
+  if (normalizedSubjectType === 'english') defaultTopic = 'English Language & Verbal Reasoning';
+  if (normalizedSubjectType === 'universal') defaultTopic = 'General Studies & Academic Topics';
+
+  const effectiveTopic = targetTopic || topic || defaultTopic;
+  const effectiveDiff = targetDifficulty || difficulty || 'medium';
+
   // Step 1: Extract all questions from the document
   const extractResult = await extractAllQuestionsFromDocument({
     pdfPath,
     pdfText,
-    targetTopic,
+    targetTopic: effectiveTopic,
+    subjectType: normalizedSubjectType,
     apiKey,
   });
 
   // Step 2: Generate configured number of diverse questions based on difficulty
   const generateResult = await generateMCQsFromExtracted({
     extractedQuestions: extractResult.questions,
-    targetTopic: extractResult.detectedTopic || targetTopic,
-    targetDifficulty,
+    targetTopic: extractResult.detectedTopic || effectiveTopic,
+    subjectType: normalizedSubjectType,
+    targetDifficulty: effectiveDiff,
     questionCount,
     apiKey,
     pdfPath,
@@ -1033,6 +1258,7 @@ const generateMCQsWithGemini = async ({
 
   return {
     ...generateResult,
+    subjectType: normalizedSubjectType,
     extractedSourceQuestions: extractResult.questions,
     distinctCases: extractResult.distinctCases,
   };

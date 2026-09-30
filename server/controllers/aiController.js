@@ -20,7 +20,7 @@ const escapeRegex = (str = '') => {
 // @access  Private (Admin only)
 exports.extractQuestions = async (req, res) => {
   try {
-    const { topic = '', pastedText = '' } = req.body;
+    const { topic = '', pastedText = '', subjectType = 'math' } = req.body;
 
     let text = '';
     let numPages = 1;
@@ -80,11 +80,12 @@ exports.extractQuestions = async (req, res) => {
       });
     }
 
-    // Call Phase 1 extraction service
+    // Call Phase 1 extraction service with subjectType
     const extractResult = await extractAllQuestionsFromDocument({
       pdfPath: req.file ? req.file.path : null,
       pdfText: text,
       targetTopic: topic,
+      subjectType,
       apiKey: userApiKey,
       allowSystemFallback: isAdmin,
     });
@@ -94,7 +95,7 @@ exports.extractQuestions = async (req, res) => {
     if (extractedQuestions.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Could not detect any examination questions in the provided document. Ensure the document contains exercises or math problems.',
+        message: 'Could not detect any examination questions in the provided document. Ensure the document contains exercises or questions.',
       });
     }
 
@@ -105,6 +106,7 @@ exports.extractQuestions = async (req, res) => {
         originalName,
         filename,
         numPages,
+        subjectType: extractResult.subjectType || subjectType || 'math',
         detectedTopic: extractResult.detectedTopic || topic || 'General Mathematics',
         distinctCases: extractResult.distinctCases || [],
         totalQuestionsFound: extractResult.totalExtracted,
@@ -133,6 +135,7 @@ exports.generateFromExtracted = async (req, res) => {
       topic = 'General Mathematics',
       difficulty = 'medium',
       questionCount = 30,
+      subjectType = 'math',
       pdfDocument = null,
     } = req.body;
 
@@ -146,7 +149,7 @@ exports.generateFromExtracted = async (req, res) => {
     const targetCount = parseInt(questionCount, 10) || 30;
 
     console.log(
-      `[AI Controller] Synthesizing ${targetCount} ${difficulty.toUpperCase()} questions for "${topic}" from ${extractedQuestions.length} source questions...`
+      `[AI Controller] Synthesizing ${targetCount} [${(subjectType || 'math').toUpperCase()}] ${difficulty.toUpperCase()} questions for "${topic}" from ${extractedQuestions.length} source questions...`
     );
 
     const isAdmin = req.user?.role === 'admin';
@@ -171,6 +174,7 @@ exports.generateFromExtracted = async (req, res) => {
       extractedQuestions,
       targetTopic: topic,
       targetDifficulty: difficulty,
+      subjectType,
       questionCount: targetCount,
       apiKey: userApiKey,
       allowSystemFallback: isAdmin,
@@ -178,8 +182,8 @@ exports.generateFromExtracted = async (req, res) => {
 
     let questions = genResult.questions || [];
 
-    // Fallback safeguard: If live generation yielded fewer than targetCount or failed, augment from verified JSON corpus
-    if (questions.length < targetCount) {
+    // Fallback safeguard (only for math): If live generation yielded fewer than targetCount or failed, augment from verified JSON corpus
+    if (questions.length < targetCount && (subjectType === 'math' || !subjectType)) {
       console.warn(`[AI Controller] Generated ${questions.length}/${targetCount} questions. Checking verified fallback cache...`);
       const verifiedPath = path.join(__dirname, '..', 'generated_30_hard_questions.json');
       if (fs.existsSync(verifiedPath)) {
@@ -211,6 +215,7 @@ exports.generateFromExtracted = async (req, res) => {
       success: true,
       message: `Successfully generated ${questions.length} ${difficulty.toUpperCase()} questions with diverse case coverage.`,
       meta: {
+        subjectType: genResult.subjectType || subjectType || 'math',
         detectedTopic: genResult.detectedTopic || topic,
         modelUsed: genResult.modelUsed || 'gemini',
         distinctCasesCovered: genResult.distinctCasesCovered || [],
@@ -223,23 +228,26 @@ exports.generateFromExtracted = async (req, res) => {
   } catch (error) {
     console.error('generateFromExtracted error:', error);
 
-    // Fallback: If exception occurred during AI synthesis, serve verified 30 questions
-    const verifiedPath = path.join(__dirname, '..', 'generated_30_hard_questions.json');
-    if (fs.existsSync(verifiedPath)) {
-      try {
-        const verified = JSON.parse(fs.readFileSync(verifiedPath, 'utf-8'));
-        console.log(`[AI Controller] Error recovery: Serving ${verified.length} verified questions.`);
-        return res.json({
-          success: true,
-          message: `Served ${verified.length} verified GMAT-level questions (fallback recovery).`,
-          meta: {
-            detectedTopic: topic || 'Profit and Loss',
-            modelUsed: 'gemini-verified-fallback',
-            isFallback: true,
-          },
-          questions: verified,
-        });
-      } catch (e) {}
+    // Fallback: If exception occurred during AI synthesis, serve verified 30 questions for math
+    if (req.body.subjectType === 'math' || !req.body.subjectType) {
+      const verifiedPath = path.join(__dirname, '..', 'generated_30_hard_questions.json');
+      if (fs.existsSync(verifiedPath)) {
+        try {
+          const verified = JSON.parse(fs.readFileSync(verifiedPath, 'utf-8'));
+          console.log(`[AI Controller] Error recovery: Serving ${verified.length} verified questions.`);
+          return res.json({
+            success: true,
+            message: `Served ${verified.length} verified GMAT-level questions (fallback recovery).`,
+            meta: {
+              subjectType: 'math',
+              detectedTopic: topic || 'Profit and Loss',
+              modelUsed: 'gemini-verified-fallback',
+              isFallback: true,
+            },
+            questions: verified,
+          });
+        } catch (e) {}
+      }
     }
 
     res.status(500).json({
@@ -259,6 +267,7 @@ exports.processPdf = async (req, res) => {
       difficulty = 'medium',
       questionCount = 30,
       pastedText = '',
+      subjectType = 'math',
     } = req.body;
 
     let text = '';
@@ -304,14 +313,15 @@ exports.processPdf = async (req, res) => {
       pdfPath: req.file ? req.file.path : null,
       pdfText: text,
       targetTopic: topic,
+      subjectType,
       targetDifficulty: difficulty,
       questionCount: targetCount,
     });
 
     let questions = aiResult.questions || [];
 
-    // Fallback safeguard: If live generation yielded fewer than targetCount, augment from verified JSON corpus
-    if (questions.length < targetCount) {
+    // Fallback safeguard (only for math): If live generation yielded fewer than targetCount, augment from verified JSON corpus
+    if (questions.length < targetCount && (subjectType === 'math' || !subjectType)) {
       console.warn(`[AI Controller processPdf] Generated ${questions.length}/${targetCount} questions. Checking verified fallback cache...`);
       const verifiedPath = path.join(__dirname, '..', 'generated_30_hard_questions.json');
       if (fs.existsSync(verifiedPath)) {
@@ -331,7 +341,7 @@ exports.processPdf = async (req, res) => {
     if (!questions || questions.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Could not extract questions from the provided document. Please ensure the document contains mathematical questions.',
+        message: 'Could not extract questions from the provided document. Please ensure the document contains examination questions.',
       });
     }
 
@@ -355,6 +365,7 @@ exports.processPdf = async (req, res) => {
         originalName,
         filename,
         numPages,
+        subjectType: aiResult.subjectType || subjectType || 'math',
         detectedTopic,
         modelUsed: aiResult.modelUsed || 'gemini',
         isFallback: false,
@@ -685,12 +696,22 @@ exports.deployVerifiedExam = async (req, res) => {
 exports.studentGeneratePractice = async (req, res) => {
   try {
     const {
-      topic = 'Quantitative Aptitude',
+      topic = '',
       difficulty = 'medium',
       questionCount = 10,
       title = '',
       pastedText = '',
+      subjectType = 'math',
     } = req.body;
+
+    const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
+      ? (subjectType || '').toLowerCase()
+      : 'math';
+
+    let defaultFallbackTopic = 'Quantitative Aptitude';
+    if (normalizedSubjectType === 'english') defaultFallbackTopic = 'English Language & Verbal Practice';
+    if (normalizedSubjectType === 'universal') defaultFallbackTopic = 'General Academic Practice';
+    const initialTopic = topic || defaultFallbackTopic;
 
     let text = '';
     let originalName = 'Pasted Notes';
@@ -749,13 +770,14 @@ exports.studentGeneratePractice = async (req, res) => {
     const extractResult = await extractAllQuestionsFromDocument({
       pdfPath: req.file ? req.file.path : null,
       pdfText: text,
-      targetTopic: topic,
+      targetTopic: initialTopic,
+      subjectType: normalizedSubjectType,
       apiKey: studentApiKey,
       allowSystemFallback: isAdmin,
     });
 
     const extractedSeeds = extractResult.questions || [];
-    const detectedTopic = extractResult.detectedTopic || topic || 'Quantitative Practice';
+    const detectedTopic = extractResult.detectedTopic || initialTopic || 'Practice Assessment';
 
     // Step 2: Generate configured number of diverse questions
     const genResult = await generateMCQsFromExtracted({
@@ -764,7 +786,8 @@ exports.studentGeneratePractice = async (req, res) => {
           ? extractedSeeds
           : [{ questionNumber: 1, text: text.substring(0, 1500), topic: detectedTopic }],
       targetTopic: detectedTopic,
-      difficulty: diff,
+      subjectType: normalizedSubjectType,
+      targetDifficulty: diff,
       questionCount: count,
       apiKey: studentApiKey,
       allowSystemFallback: isAdmin,
@@ -833,6 +856,7 @@ exports.studentGeneratePractice = async (req, res) => {
     res.status(201).json({
       success: true,
       message: `Successfully generated ${createdQuestionDocs.length} practice questions!`,
+      subjectType: normalizedSubjectType,
       exam: {
         ...exam.toObject(),
         questions: createdQuestionDocs,
