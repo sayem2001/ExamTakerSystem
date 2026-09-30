@@ -79,6 +79,57 @@ const getActiveApiKey = async (providedKey = '', allowSystemFallback = true) => 
 };
 
 /**
+ * Recursively repairs nested fraction expressions like \frac{...}{...}, \rac{...}{...}, ac{...}{...}
+ * correctly handling balanced nested braces (such as \text{...} inside the numerator/denominator).
+ */
+const replaceNestedFractions = (str) => {
+  if (!str || typeof str !== 'string') return '';
+  let res = '';
+  let i = 0;
+  while (i < str.length) {
+    const slice = str.slice(i);
+    const m = slice.match(/^(?:\\frac|\\rac|\\nac|(?:\b|\s|=|\$|\(|^|[+\-])ac)\s*\{/i);
+    if (m) {
+      const brace1Start = i + m[0].length - 1;
+      let depth = 1;
+      let j = brace1Start + 1;
+      while (j < str.length && depth > 0) {
+        if (str[j] === '{') depth++;
+        else if (str[j] === '}') depth--;
+        j++;
+      }
+      const numEnd = j;
+      const afterNum = str.slice(numEnd).match(/^\s*\{/);
+      if (depth === 0 && afterNum) {
+        const brace2Start = numEnd + afterNum[0].length - 1;
+        depth = 1;
+        let k = brace2Start + 1;
+        while (k < str.length && depth > 0) {
+          if (str[k] === '{') depth++;
+          else if (str[k] === '}') depth--;
+          k++;
+        }
+        if (depth === 0) {
+          const numContent = str.slice(brace1Start + 1, numEnd - 1);
+          const denContent = str.slice(brace2Start + 1, k - 1);
+          const prefixMatch = m[0].match(/^[^\w\\]*/)[0];
+          let frac = `${prefixMatch}\\frac{${replaceNestedFractions(numContent)}}{${replaceNestedFractions(denContent)}}`;
+          if (k < str.length && /[a-zA-Z]/.test(str[k])) {
+            frac += ' ';
+          }
+          res += frac;
+          i = k;
+          continue;
+        }
+      }
+    }
+    res += str[i];
+    i++;
+  }
+  return res;
+};
+
+/**
  * Universal Question Converter:
  * Parses JSON, markdown blocks, LaTeX backslashes, or text-formatted questions,
  * converting into clean, standardized question objects.
@@ -112,48 +163,83 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
       }
     }
 
-    // 2. Unescape literal newlines and control characters
+    // 2. Clean rogue trailing/leading $ attached to percentage (e.g. "20%$" -> "20%")
+    s = s.replace(/(\d+(?:\.\d+)?%)\$/g, '$1');
+    s = s.replace(/\$(\d+(?:\.\d+)?%)(?!\w)/g, '$1');
+
+    // 3. Unescape literal newlines (ONLY \\r\\n and \\n - NEVER solitary \\r followed by letters!)
+    s = s.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+
+    // 4. Fix ASCII control characters that got injected by JSON/escape bugs
     s = s
-      .replace(/\\r\\n/g, '\n')
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '\n');
+      .replace(/[\u000c\f]+[\u000d\r]*\s*\\?r?a?c(?=[{\d\s])/gi, '\\frac')
+      .replace(/[\u000c\f]+\s*\\?frac/gi, '\\frac')
+      .replace(/[\u0009\t]+\s*\\?t?e?x?t(?=[{\s])/gi, '\\text')
+      .replace(/[\u0009\t]+\s*\\?t?i?m?e?s/gi, ' \\times ')
+      .replace(/[\u000d\r]+\s*\\?r?i?g?h?t?a?r?r?o?w/gi, '\\rightarrow');
 
-    // 3. Collapse rogue \f or \t sequences before standard macros
-    s = s.replace(/(?:\\[fF]|\u000c|\f)+(\s*\\?frac\b)/gi, '\\frac');
-    s = s.replace(/(?:\\[tT]|\t)+(\s*\\?times\b)/gi, ' \\times ');
-    s = s.replace(/(?:\\[tT]|\t)+(\s*\\?text\b)/gi, '\\text');
-    s = s.replace(/(?:\\[rR]|\r)+(\s*\\?rightarrow\b)/gi, '\\rightarrow');
-    s = s.replace(/(?:\\[tT]|\t)+(Total\s+unrestricted|Restricted\s*\(together\))/gi, '\\text{$1}');
-
-    // 4. Remove isolated rogue backslashes before letters that are not valid macros
-    s = s.replace(/\\[fF](?![a-zA-Z])/g, '');
-    s = s.replace(/\\[tT](?![a-zA-Z])/g, '');
-    s = s.replace(/\\[rR](?![a-zA-Z])/g, '');
-
-    // 5. Fix missing leading characters on common macros
+    // 5. Collapse rogue backslashes and repair damaged macros
     s = s
-      .replace(/\\rac(?=[{\s\d])/g, '\\frac')
-      .replace(/\\ext(?=[{\s])/g, '\\text')
-      .replace(/\\imes(?=[{\s\d])/g, '\\times')
-      .replace(/\\ightarrow\b/g, '\\rightarrow');
+      .replace(/(?:\\[fF]|\u000c|\f)+(\s*\\?frac\b)/gi, '\\frac')
+      .replace(/(?:\\+|(?:\\[tT]|[\u0009\t\u000c\f\u000d\r])+)+(?:\\?text\b|ext(?=[{\s\$]|$))/gi, '\\text')
+      .replace(/(?:\\+|(?:\\[tT]|[\u0009\t\u000c\f\u000d\r])+)+(?:\\?times\b|imes(?=[{\s\d\$]|$))/gi, ' \\times ')
+      .replace(/(?:\\[rR]|\r)+(\s*\\?rightarrow\b)/gi, '\\rightarrow');
 
-    // 6. Fix double-typed numbers and percentages (e.g. 40%40% -> 40%, 1.51.5 -> 1.5)
-    s = s.replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
+    // 6. Replace nested and simple fractions: \rac{1}{2}, ac{1}{2} -> \frac{1}{2}
+    s = replaceNestedFractions(s);
 
-    // 7. Clean rogue $ attached to percentage and clean backslashes before $
-    s = s.replace(/(\d+(?:\.\d+)?%)\$/g, '$1'); // e.g. "20%$" -> "20%"
-    s = s.replace(/\$(\d+(?:\.\d+)?%)(?!\w)/g, '$1'); // e.g. "$20%" -> "20%"
-    s = s.replace(/\\(\$)/g, '$');
-    s = s.replace(/[\f\u000c]/g, '');
+    // 7. Fix \ext, \ ext, or ext before {
+    s = s
+      .replace(/\\?\s*ext(?=\{)/gi, '\\text')
+      .replace(/\\?\s*imes(?=[{\s\d])/gi, ' \\times ');
 
-    // 8. Fix letter-spacing caused by ASCII control characters
-    s = s.replace(/([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])(?:\s+([a-zA-Z]))*/g, (match) => {
-      const condensed = match.replace(/\s+/g, '');
-      if (condensed.length >= 4 && !/^[A-Z]+$/.test(condensed) && !/\b[A-E]\b/.test(match)) {
-        return condensed;
+    // 8. Clean stray tabs and literal \t artifacts and backslashes before operators
+    s = s.replace(/\\+\s*(?:\\t|\t)?\s*([×=+\-\/])/g, ' $1 ');
+    s = s.replace(/\\t\b/gi, '').replace(/[\t\u0009]+/g, ' ');
+    s = s.replace(/Taka(?=\d)/gi, 'Taka ');
+
+    // 9. Fix camelCase broken tokens: extTotalCost -> Total Cost, extSavingsperitem -> Savings per item
+    s = s.replace(/\bext([A-Z][a-zA-Z0-9_]*)/g, (match, p1) => {
+      return p1
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/per([a-z])/i, ' per $1')
+        .replace(/of([a-z])/i, ' of $1');
+    });
+
+    // 10. Fix arithmetic multiplication
+    s = s.replace(/(\d+|[a-zA-Z])\s*(?:\\+t?times|\\*t?imes)\s*(\d+|[a-zA-Z])/gi, '$1 × $2');
+    s = s.replace(/\s*×\s*/g, ' × ');
+    // Inside $...$, ensure math multiplication uses \times for KaTeX
+    s = s.replace(/\$([^$]+)\$/g, (m, inner) => '$' + inner.replace(/×/g, '\\times') + '$');
+    // Remove rogue solitary backslashes not followed by valid LaTeX command letters or { }
+    s = s.replace(/\\(?![a-zA-Z{}$%])/g, '');
+
+    // 11. Fix broken variable in parentheses: "(\n n)" -> "(n)"
+    s = s.replace(/\(\s*\n+\s*([a-zA-Z])\s*\)/g, '($1)');
+
+    // 12. Fix rogue math sentences where English words were enclosed in $...$
+    // e.g. "$ \frac{1}{2} the stock at 20% profit, \frac{1}{4} $" -> normal English text with isolated $\frac{1}{2}$
+    s = s.replace(/\$([^$]+)\$/g, (match, inner) => {
+      const englishWords = inner
+        .replace(/\\(?:text|frac|times|rightarrow|left|right)\b/g, '')
+        .replace(/\{[^{}]*\}/g, '')
+        .match(/[a-zA-Z]{3,}/g) || [];
+
+      if (englishWords.length >= 2) {
+        return inner
+          .replace(/(?:\\?f?rac|ac)\{([^{}]+)\}\{([^{}]+)\}/gi, '$\\frac{$1}{$2}$')
+          .replace(/\\text\{([^{}]+)\}/gi, '$1')
+          .replace(/\\times/gi, '×')
+          .replace(/\\%/g, '%')
+          .replace(/\n+/g, ' ');
       }
       return match;
     });
+
+    // 13. Clean duplicate percentages, rogue backslashes before $
+    s = s.replace(/\\(\$)/g, '$');
+    s = s.replace(/\\\\%/g, '%');
+    s = s.replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
 
     return s.trim();
   };
@@ -213,15 +299,7 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     };
   };
 
-  // 1. Direct JSON parse
-  try {
-    const parsed = JSON.parse(text);
-    const arr = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
-    const valid = arr.map(normalizeQuestion).filter(Boolean);
-    if (valid.length > 0) return valid;
-  } catch (err) {}
-
-  // 2. Sanitize unescaped LaTeX backslashes and control characters inside strings
+  // Helper to sanitize unescaped LaTeX backslashes and control characters inside strings before JSON.parse
   const trySanitizedParse = (rawStr) => {
     let sanitized = '';
     let inStr = false;
@@ -239,7 +317,11 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
           sanitized += c;
         } else if (c === '\\') {
           const next = rawStr[i + 1];
-          if (next === '"' || next === '\\' || next === '/') {
+          if (next === '\\') {
+            sanitized += '\\\\';
+            i++; // skip next backslash
+            continue;
+          } else if (next === '"' || next === '/') {
             sanitized += c;
           } else if (next === 'n' || next === 'r' || next === 't') {
             const lookahead = rawStr.slice(i + 1, i + 6);
@@ -291,12 +373,21 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     }
   };
 
+  // 1. Sanitize unescaped LaTeX backslashes first so \f and \t are not corrupted into formfeed / tab by JSON.parse
   const sanitizedResult = trySanitizedParse(text);
   if (sanitizedResult) {
     const list = Array.isArray(sanitizedResult) ? sanitizedResult : [sanitizedResult];
     const valid = list.map(normalizeQuestion).filter(Boolean);
     if (valid.length > 0) return valid;
   }
+
+  // 2. Direct JSON parse fallback
+  try {
+    const parsed = JSON.parse(text);
+    const arr = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.mcqs || []);
+    const valid = arr.map(normalizeQuestion).filter(Boolean);
+    if (valid.length > 0) return valid;
+  } catch (err) {}
 
   // 3. Balanced Brace Object-by-Object Extractor (Resilient against partial batch cutoffs or single-item errors)
   const extractedByBraces = [];
@@ -673,7 +764,10 @@ CRITICAL TASK:
 1. Filter out pure theoretical definitions, chapter introductions, formulas, and general remarks.
 2. EXTRACT EVERY SINGLE QUESTION OR PRACTICE PROBLEM present in this text segment.
 3. For each question:
-   - "questionText": Full statement. Preserve any mathematical formulas using clean LaTeX ($...$).
+   - "questionText": Full statement in clean, natural, easily understandable language for students.
+     * Write simple fractions as standard plain numbers (e.g. "1/2", "1/4", "1/9") or strictly isolate them as clean inline math with spaces (e.g. " $\\frac{1}{2}$ ").
+     * NEVER wrap entire English sentences, connecting words, or clauses inside math delimiters ($...$).
+     * Write currency and percentages in plain text ($500, Taka 300, 20%).
    - "caseType": Categorize the specific problem case (e.g. "Markup & Markdown", "Successive Discounts", "Faulty Weights", "Determining Cost Price", "Multi-Item Mixture", "Word Problem").
    - "coreConcept": Concise 3-6 word summary of mathematical rule.
    - "options": Multiple choice options if present (e.g. [{"key": "A", "text": "100"}, ...]).
@@ -704,12 +798,7 @@ Output ONLY a JSON array of question objects:
       });
       modelUsedForExtraction = modelUsed || modelUsedForExtraction;
 
-      let parsedArr = [];
-      try {
-        parsedArr = JSON.parse(rawText);
-      } catch (e) {
-        parsedArr = convertResponseToQuestions(rawText, detectedTopic);
-      }
+      const parsedArr = convertResponseToQuestions(rawText, detectedTopic);
 
       if (Array.isArray(parsedArr) && parsedArr.length > 0) {
         console.log(`[Gemini Engine] Segment ${cIdx + 1} yielded ${parsedArr.length} questions.`);
@@ -1126,12 +1215,19 @@ ${exclusionText}
 
 QUANTITY & CRITICAL FORMATTING MANDATES:
 - Generate EXACTLY ${countToFetch} questions (numbered ${startIdx} to ${startIdx + countToFetch - 1}).
-- CRITICAL FORMATTING RULES:
-  1. Write all currency values in plain text (e.g. '$120', '$960', '$1,500', 'Taka 120'). NEVER wrap currency numbers inside LaTeX math delimiters ($...$).
-  2. Write all percentages in plain text (e.g. '20%', '25%', '50%'). NEVER omit the '%' symbol (e.g. write 'marks up by 50% above cost', NEVER write 'marks up by 50 above cost'). NEVER put a '$' sign after a percentage (do NOT write '20%$').
-  3. Use LaTeX delimiters ($...$) ONLY for true algebraic equations, formulas, fractions (\\frac{a}{b}), and variables ($x$, $y$).
-- When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\%).
-- NEVER corrupt Bengali (বাংলা) or non-English characters into question marks or broken escapes. Output authentic Unicode text.
+- CRITICAL STUDENT-READABLE TEXT RULES:
+  1. Question statements and explanations MUST be written in clean, natural, easily understandable language for students.
+  2. NEVER wrap English words, sentences, or phrases inside math delimiters ($...$).
+     - WRONG: "$ A trader sells \\frac{1}{2} the stock at 20% profit $" (This destroys formatting and collapses text into italic math variables!).
+     - CORRECT: "A trader sells $\\frac{1}{2}$ of the stock at 20% profit, $\\frac{1}{4}$ at 10% loss, and the rest at $x$% profit..."
+  3. Write simple fractions as standard plain fractions (e.g. 1/2, 1/4, 1/9, 2/3) or strictly isolate them as clean inline math with surrounding spaces: " $\\frac{1}{2}$ ".
+  4. Write all currency values in plain text (e.g. '$120', '$960', '$1,500', 'Taka 120'). NEVER wrap currency numbers inside LaTeX math delimiters ($...$).
+  5. Write all percentages in plain text (e.g. '20%', '25%', '50%'). NEVER omit the '%' symbol. NEVER put a '$' sign after a percentage (do NOT write '20%$').
+  6. In explanations, write step-by-step arithmetic in clean plain text with standard symbols (e.g. "Total Cost = 3,000 × 25 = Taka 75,000"). NEVER abbreviate into broken tokens like "extTotalCost" or "imes25".
+  7. For governing formulas, use standard LaTeX with \\text{...}:
+     `$$\\text{Average Profit per book} = \\frac{\\text{Total Revenue} - \\text{Total Cost}}{\\text{Total Quantity}}$$`
+  8. When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\%).
+  9. NEVER corrupt Bengali (বাংলা) or non-English characters into question marks or broken escapes. Output authentic Unicode text.
 ${explanationInstructions}
 - NEVER include internal draft thoughts or phrases like "Wait, let's check" or "No, let's adjust".
 
