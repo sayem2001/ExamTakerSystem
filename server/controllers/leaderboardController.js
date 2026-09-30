@@ -172,17 +172,30 @@ exports.exportLeaderboardCSV = async (req, res) => {
       .populate('user', 'name email institution')
       .sort({ score: -1, durationSeconds: 1 });
 
+    const isExamAdmin = req.user && req.user.role === 'admin';
+
     let csv = 'Rank,Student Name,Email,Institution,Score,Max Score,Percentage,Time (Seconds),Status,Submitted At\n';
 
     attempts.forEach((att, idx) => {
       const name = (att.user?.name || 'Anonymous').replace(/,/g, ' ');
-      const email = (att.user?.email || '').replace(/,/g, ' ');
+      const rawEmail = att.user?.email || '';
+      let displayEmail = rawEmail;
+
+      // PII Protection: Mask email for non-admins to prevent scraping student directories
+      if (!isExamAdmin && rawEmail) {
+        const [userPart, domain] = rawEmail.split('@');
+        displayEmail = userPart.length > 2
+          ? `${userPart[0]}***${userPart.slice(-1)}@${domain}`
+          : `***@${domain || 'domain.com'}`;
+      }
+      displayEmail = displayEmail.replace(/,/g, ' ');
       const inst = (att.user?.institution || '').replace(/,/g, ' ');
-      csv += `${idx + 1},"${name}","${email}","${inst}",${att.score},${att.maxScore},${att.percentage}%,${att.durationSeconds},${att.status},"${new Date(att.submittedAt).toISOString()}"\n`;
+      csv += `${idx + 1},"${name}","${displayEmail}","${inst}",${att.score},${att.maxScore},${att.percentage}%,${att.durationSeconds},${att.status},"${new Date(att.submittedAt).toISOString()}"\n`;
     });
 
+    const safeTitle = (exam.title || 'Exam').replace(/[^a-zA-Z0-9_-]/g, '_');
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=Leaderboard-${exam.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=Leaderboard-${safeTitle}.csv`);
     res.status(200).send(csv);
   } catch (error) {
     res.status(500).send(error.message);

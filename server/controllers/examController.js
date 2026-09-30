@@ -2,6 +2,10 @@ const Exam = require('../models/Exam');
 const Question = require('../models/Question');
 const ExamAttempt = require('../models/ExamAttempt');
 
+const escapeRegex = (str = '') => {
+  return typeof str === 'string' ? str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+};
+
 // @desc    Get all published exams (with filters for topic, difficulty)
 // @route   GET /api/exams
 // @access  Public or Protected
@@ -13,7 +17,7 @@ exports.getExams = async (req, res) => {
     // Students only see published exams unless admin
     if (!req.user || req.user.role !== 'admin') {
       filter.status = 'published';
-    } else if (status) {
+    } else if (status && ['draft', 'published', 'archived'].includes(status)) {
       filter.status = status;
     }
 
@@ -21,9 +25,10 @@ exports.getExams = async (req, res) => {
     filter.isPractice = { $ne: true };
 
     if (topic && topic !== 'All') {
-      filter.topic = new RegExp(topic, 'i');
+      filter.topic = new RegExp(escapeRegex(topic.trim()), 'i');
     }
-    if (difficulty && difficulty !== 'all') {
+    const validDifficulties = ['easy', 'medium', 'hard'];
+    if (difficulty && validDifficulties.includes(difficulty.toLowerCase())) {
       filter.difficulty = difficulty.toLowerCase();
     }
 

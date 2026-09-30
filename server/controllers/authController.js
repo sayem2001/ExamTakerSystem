@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const User = require('../models/User');
 const AdminOtp = require('../models/AdminOtp');
 const { MAIN_ADMIN_EMAIL, sendAdminOtpEmail } = require('../services/emailService');
@@ -7,6 +8,41 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'super_secure_jwt_secret_exam_taker_system_2026_xyz987', {
     expiresIn: '30d',
   });
+};
+
+/**
+ * Cryptographically verify Firebase ID token using Google's Identity Toolkit API.
+ * Ensures the token was genuinely signed by Google/Firebase, belongs to this project,
+ * and extracts the authentic email, uid, and email verification status.
+ */
+const verifyFirebaseIdToken = async (idToken) => {
+  if (!idToken || typeof idToken !== 'string') {
+    throw new Error('Valid Firebase ID token is required');
+  }
+
+  const apiKey = process.env.FIREBASE_API_KEY || 'AIzaSyBu6iw4a5nzvujImH086KfqJ3PSXUgBjoM';
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.users || data.users.length === 0) {
+    const errorMsg = data?.error?.message || 'Token verification failed';
+    throw new Error(`Firebase token verification failed: ${errorMsg}`);
+  }
+
+  const fbUser = data.users[0];
+  return {
+    uid: fbUser.localId,
+    email: (fbUser.email || '').toLowerCase().trim(),
+    emailVerified: Boolean(fbUser.emailVerified),
+    displayName: fbUser.displayName || '',
+    photoUrl: fbUser.photoUrl || '',
+  };
 };
 
 // @desc    Request OTP to create a new Administrator (sent to Main Admin's Gmail)
@@ -25,8 +61,8 @@ exports.requestAdminOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'An account with this email address already exists' });
     }
 
-    // Generate secure 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate cryptographically secure 6-digit OTP (CSPRNG)
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes valid
 
     const targetAdminEmail = (process.env.MAIN_ADMIN_EMAIL || MAIN_ADMIN_EMAIL).toLowerCase().trim();
@@ -183,26 +219,41 @@ exports.login = async (req, res) => {
 
 // @desc    Firebase Auth (Google Sign-In or Verified Email Sign-In)
 // @route   POST /api/auth/firebase
-// @access  Public
+// @access  Public (Protected via Cryptographic Firebase ID Token Verification)
 exports.firebaseAuth = async (req, res) => {
   try {
-    const { idToken, email, name, role = 'student', institution = '', adminOtp = '', avatar = '', isEmailVerified = false } = req.body;
+    const { idToken, role = 'student', institution = '', adminOtp = '' } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Email address is required for authentication' });
+    if (!idToken) {
+      return res.status(400).json({ success: false, message: 'Firebase authentication token is required.' });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    // Cryptographically verify ID token with Google Identity API
+    let verifiedUser;
+    try {
+      verifiedUser = await verifyFirebaseIdToken(idToken);
+    } catch (verr) {
+      return res.status(401).json({ success: false, message: verr.message });
+    }
+
+    const normalizedEmail = verifiedUser.email;
+    if (!normalizedEmail) {
+      return res.status(400).json({ success: false, message: 'No email address associated with this verified account.' });
+    }
 
     // Check if user already exists
     let user = await User.findOne({ email: normalizedEmail });
 
     if (user) {
-      if (isEmailVerified) {
+      // If user exists and email is verified by Google, update verified status
+      if (verifiedUser.emailVerified) {
         user.isEmailVerified = true;
       }
-      if (avatar && !user.avatar) {
-        user.avatar = avatar;
+      if (verifiedUser.photoUrl && !user.avatar) {
+        user.avatar = verifiedUser.photoUrl;
+      }
+      if (verifiedUser.uid && !user.firebaseUid) {
+        user.firebaseUid = verifiedUser.uid;
       }
       await user.save();
     } else {
@@ -242,13 +293,14 @@ exports.firebaseAuth = async (req, res) => {
       }
 
       user = await User.create({
-        name: name ? name.trim() : normalizedEmail.split('@')[0],
+        name: verifiedUser.displayName ? verifiedUser.displayName.trim() : normalizedEmail.split('@')[0],
         email: normalizedEmail,
         role: assignedRole,
         institution: institution ? institution.trim() : '',
-        avatar: avatar || '',
-        isEmailVerified: Boolean(isEmailVerified),
-        authProvider: avatar ? 'google' : 'firebase-email',
+        avatar: verifiedUser.photoUrl || '',
+        firebaseUid: verifiedUser.uid || '',
+        isEmailVerified: Boolean(verifiedUser.emailVerified),
+        authProvider: verifiedUser.photoUrl || verifiedUser.emailVerified ? 'google' : 'firebase-email',
       });
     }
 

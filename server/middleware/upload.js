@@ -14,7 +14,8 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname);
+    // Sanitize and preserve only safe lowercase extension
+    const ext = path.extname(file.originalname || '').toLowerCase();
     cb(null, 'exam-doc-' + uniqueSuffix + ext);
   },
 });
@@ -28,11 +29,17 @@ const allowedMimeTypes = [
 ];
 
 const fileFilter = (req, file, cb) => {
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (allowedExtensions.includes(ext) || allowedMimeTypes.includes(file.mimetype)) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+
+  // Strict Security: File extension MUST be explicitly allowed (.pdf, .docx, .doc)
+  // AND MIME type must match permitted document formats
+  const hasValidExt = allowedExtensions.includes(ext);
+  const hasValidMime = allowedMimeTypes.includes(file.mimetype);
+
+  if (hasValidExt && hasValidMime) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF and Word (.docx, .doc) documents are supported for MCQ generation'), false);
+    cb(new Error('Invalid file type. Only authentic PDF and Word (.docx, .doc) documents are permitted.'), false);
   }
 };
 

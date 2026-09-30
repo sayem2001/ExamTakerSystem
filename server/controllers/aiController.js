@@ -11,6 +11,10 @@ const Exam = require('../models/Exam');
 const Topic = require('../models/Topic');
 const User = require('../models/User');
 
+const escapeRegex = (str = '') => {
+  return typeof str === 'string' ? str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+};
+
 // @desc    Phase 1: Read entire document, filter theory/notes, and extract ALL questions present
 // @route   POST /api/ai/extract-questions
 // @access  Private (Admin only)
@@ -33,6 +37,9 @@ exports.extractQuestions = async (req, res) => {
       const pdfData = await extractTextFromPDF(filePath);
       text = pdfData.text;
       numPages = pdfData.numPages || 1;
+
+      // Clean up uploaded document to avoid disk retention
+      fs.unlink(filePath, () => {});
     } else {
       const rawText = pastedText || req.body.text || '';
       if (rawText && rawText.trim().length > 0) {
@@ -415,8 +422,8 @@ exports.autoCreateThreeExams = async (req, res) => {
       });
     }
 
-    // Ensure topic exists in Topic collection
-    let existingTopic = await Topic.findOne({ name: new RegExp(`^${topic}$`, 'i') });
+    // Ensure topic exists in Topic collection (ReDoS safe)
+    let existingTopic = await Topic.findOne({ name: new RegExp(`^${escapeRegex(topic)}$`, 'i') });
     if (!existingTopic) {
       existingTopic = await Topic.create({
         name: topic,
@@ -544,7 +551,7 @@ exports.scheduleGeneratedExam = async (req, res) => {
       });
     }
 
-    let existingTopic = await Topic.findOne({ name: new RegExp(`^${topic}$`, 'i') });
+    let existingTopic = await Topic.findOne({ name: new RegExp(`^${escapeRegex(topic)}$`, 'i') });
     if (!existingTopic) {
       existingTopic = await Topic.create({
         name: topic,
@@ -692,6 +699,7 @@ exports.studentGeneratePractice = async (req, res) => {
       originalName = req.file.originalname;
       const pdfData = await extractTextFromPDF(req.file.path);
       text = pdfData.text;
+      fs.unlink(req.file.path, () => {});
     } else {
       const rawText = pastedText || req.body.text || '';
       if (rawText && rawText.trim().length > 0) {

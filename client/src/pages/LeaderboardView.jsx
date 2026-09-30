@@ -91,7 +91,9 @@ export const LeaderboardView = () => {
 
   const handleExportCSV = () => {
     if (selectedExamId !== 'global') {
-      window.open(`/api/leaderboard/export/${selectedExamId}`, '_blank');
+      const token = localStorage.getItem('apex_token');
+      const url = `/api/leaderboard/export/${selectedExamId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      window.open(url, '_blank');
     }
   };
 

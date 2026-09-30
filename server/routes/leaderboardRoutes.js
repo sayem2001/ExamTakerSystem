@@ -8,6 +8,8 @@ const {
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const { protect } = require('../middleware/auth');
+
 const optionalAuth = async (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -26,6 +28,6 @@ const optionalAuth = async (req, res, next) => {
 
 router.get('/exam/:examId', optionalAuth, getExamLeaderboard);
 router.get('/global', getGlobalLeaderboard);
-router.get('/export/:examId', optionalAuth, exportLeaderboardCSV);
+router.get('/export/:examId', protect, exportLeaderboardCSV);
 
 module.exports = router;

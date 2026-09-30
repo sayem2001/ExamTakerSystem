@@ -262,6 +262,19 @@ exports.submitAttempt = async (req, res) => {
     const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100 * 10) / 10 : 0;
     const passed = percentage >= (exam.passPercentage || 50);
 
+    // Verify time limit integrity on official exams (prevent timer tampering)
+    const maxAllowedSeconds = (exam.durationMinutes || 60) * 60;
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - new Date(attempt.startedAt).getTime()) / 1000));
+    const gracePeriodSeconds = 180; // 3-minute grace period for network latency
+
+    let finalDuration = Math.max(0, parseInt(durationSeconds, 10) || elapsedSeconds);
+    let finalAutoSubmit = Boolean(isAutoSubmit);
+
+    if (!exam.isPractice && elapsedSeconds > (maxAllowedSeconds + gracePeriodSeconds)) {
+      finalAutoSubmit = true;
+      finalDuration = maxAllowedSeconds;
+    }
+
     // Atomically update attempt using findOneAndUpdate to prevent Mongoose version conflicts
     const updatedAttempt = await ExamAttempt.findOneAndUpdate(
       { _id: attempt._id, user: req.user.id },
@@ -277,9 +290,9 @@ exports.submitAttempt = async (req, res) => {
           unansweredCount,
           percentage,
           passed,
-          durationSeconds: durationSeconds || attempt.durationSeconds || 0,
+          durationSeconds: finalDuration,
           submittedAt: new Date(),
-          status: isAutoSubmit ? 'auto-submitted' : 'submitted',
+          status: finalAutoSubmit ? 'auto-submitted' : 'submitted',
         },
       },
       { new: true }
