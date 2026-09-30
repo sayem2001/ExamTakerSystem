@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, 'Please provide a password'],
+      required: false, // Optional for Google OAuth authenticated users
       minlength: 6,
       select: false,
     },
@@ -35,6 +35,19 @@ const userSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    authProvider: {
+      type: String,
+      enum: ['local', 'google', 'firebase-email'],
+      default: 'local',
+    },
+    firebaseUid: {
+      type: String,
+      default: '',
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     geminiApiKey: {
       type: String,
       default: '',
@@ -44,9 +57,9 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Hash password before saving
+// Hash password before saving if provided and modified
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
+  if (!this.password || !this.isModified('password')) {
     return next();
   }
   const salt = await bcrypt.genSalt(10);
@@ -56,6 +69,7 @@ userSchema.pre('save', async function (next) {
 
 // Compare password
 userSchema.methods.matchPassword = async function (enteredPassword) {
+  if (!this.password) return false;
   return await bcrypt.compare(enteredPassword, this.password);
 };
 

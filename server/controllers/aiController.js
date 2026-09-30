@@ -55,11 +55,22 @@ exports.extractQuestions = async (req, res) => {
       });
     }
 
+    const isAdmin = req.user?.role === 'admin';
+
     // Look up personal API key if user is logged in
     let userApiKey = (req.body.geminiApiKey || '').trim();
     if (!userApiKey && req.user?.id) {
       const userDoc = await User.findById(req.user.id).select('+geminiApiKey');
       if (userDoc?.geminiApiKey) userApiKey = userDoc.geminiApiKey.trim();
+    }
+
+    // Non-admin users MUST provide their own Gemini API key
+    if (!isAdmin && (!userApiKey || userApiKey.length < 10)) {
+      return res.status(403).json({
+        success: false,
+        requiresPersonalKey: true,
+        message: 'Personal Gemini API key required. Regular users must configure their own Google Gemini API key. Only administrators can use the system Gemini API. Configure your key in Settings (get a free key at https://aistudio.google.com/app/apikey).',
+      });
     }
 
     // Call Phase 1 extraction service
@@ -68,6 +79,7 @@ exports.extractQuestions = async (req, res) => {
       pdfText: text,
       targetTopic: topic,
       apiKey: userApiKey,
+      allowSystemFallback: isAdmin,
     });
 
     const extractedQuestions = extractResult.questions || [];
@@ -130,11 +142,22 @@ exports.generateFromExtracted = async (req, res) => {
       `[AI Controller] Synthesizing ${targetCount} ${difficulty.toUpperCase()} questions for "${topic}" from ${extractedQuestions.length} source questions...`
     );
 
+    const isAdmin = req.user?.role === 'admin';
+
     // Look up personal API key if user is logged in
     let userApiKey = (req.body.geminiApiKey || '').trim();
     if (!userApiKey && req.user?.id) {
       const userDoc = await User.findById(req.user.id).select('+geminiApiKey');
       if (userDoc?.geminiApiKey) userApiKey = userDoc.geminiApiKey.trim();
+    }
+
+    // Non-admin users MUST provide their own Gemini API key
+    if (!isAdmin && (!userApiKey || userApiKey.length < 10)) {
+      return res.status(403).json({
+        success: false,
+        requiresPersonalKey: true,
+        message: 'Personal Gemini API key required. Regular users must configure their own Google Gemini API key. Only administrators can use the system Gemini API. Configure your key in Settings (get a free key at https://aistudio.google.com/app/apikey).',
+      });
     }
 
     const genResult = await generateMCQsFromExtracted({
@@ -143,6 +166,7 @@ exports.generateFromExtracted = async (req, res) => {
       targetDifficulty: difficulty,
       questionCount: targetCount,
       apiKey: userApiKey,
+      allowSystemFallback: isAdmin,
     });
 
     let questions = genResult.questions || [];
@@ -693,6 +717,8 @@ exports.studentGeneratePractice = async (req, res) => {
       ? difficulty.toLowerCase()
       : 'medium';
 
+    const isAdmin = req.user?.role === 'admin';
+
     // Retrieve student's personal Gemini API key if configured
     let studentApiKey = (req.body.geminiApiKey || '').trim();
     if (!studentApiKey && req.user?.id) {
@@ -702,12 +728,22 @@ exports.studentGeneratePractice = async (req, res) => {
       }
     }
 
+    // Non-admin users MUST provide their own Gemini API key
+    if (!isAdmin && (!studentApiKey || studentApiKey.length < 10)) {
+      return res.status(403).json({
+        success: false,
+        requiresPersonalKey: true,
+        message: 'Personal Gemini API key required. Regular users must configure their own Google Gemini API key to generate practice exams. Only administrators can use the system Gemini API. Please add your free key in Settings (get one at https://aistudio.google.com/app/apikey).',
+      });
+    }
+
     // Step 1: Extract core question seeds / concepts from text
     const extractResult = await extractAllQuestionsFromDocument({
       pdfPath: req.file ? req.file.path : null,
       pdfText: text,
       targetTopic: topic,
       apiKey: studentApiKey,
+      allowSystemFallback: isAdmin,
     });
 
     const extractedSeeds = extractResult.questions || [];
@@ -723,6 +759,7 @@ exports.studentGeneratePractice = async (req, res) => {
       difficulty: diff,
       questionCount: count,
       apiKey: studentApiKey,
+      allowSystemFallback: isAdmin,
     });
 
     const generatedQuestions = genResult.questions || [];

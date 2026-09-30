@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import MathRenderer from '../components/MathRenderer';
 import ExplanationRenderer from '../components/ExplanationRenderer';
 import {
@@ -18,10 +19,14 @@ import {
   Layers,
   Lock,
   Key,
+  Shield,
+  ExternalLink,
 } from 'lucide-react';
 
 export const StudentPracticeAi = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   // Mode: 'pdf' or 'paste'
   const [inputMode, setInputMode] = useState('pdf');
@@ -42,6 +47,9 @@ export const StudentPracticeAi = () => {
   // Gemini API key state
   const [hasPersonalKey, setHasPersonalKey] = useState(false);
   const [maskedKey, setMaskedKey] = useState('');
+  const [quickKeyInput, setQuickKeyInput] = useState('');
+  const [quickKeySaving, setQuickKeySaving] = useState(false);
+  const [quickKeyMsg, setQuickKeyMsg] = useState('');
 
   useEffect(() => {
     fetchKeyStatus();
@@ -56,6 +64,28 @@ export const StudentPracticeAi = () => {
       }
     } catch (e) {
       // Non-fatal
+    }
+  };
+
+  const handleQuickSaveKey = async () => {
+    if (!quickKeyInput.trim()) return;
+    try {
+      setQuickKeySaving(true);
+      setError('');
+      setQuickKeyMsg('');
+      const res = await api.saveStudentGeminiKey(quickKeyInput.trim());
+      if (res.success) {
+        setHasPersonalKey(true);
+        setMaskedKey(res.maskedKey || `${quickKeyInput.slice(0, 4)}...${quickKeyInput.slice(-4)}`);
+        setQuickKeyInput('');
+        setQuickKeyMsg('Gemini API key successfully saved and activated!');
+      } else {
+        throw new Error(res.message || 'Failed to save key');
+      }
+    } catch (e) {
+      setError(e.message || 'Failed to save Gemini key');
+    } finally {
+      setQuickKeySaving(false);
     }
   };
 
@@ -87,6 +117,12 @@ export const StudentPracticeAi = () => {
   const handleGenerate = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Strictly enforce personal Gemini key requirement for non-admin students
+    if (!isAdmin && !hasPersonalKey) {
+      setError('Personal Gemini API key required. Regular users must configure their own Google Gemini API key to generate practice exams. Only administrators can use the system Gemini API. Please activate your free key below.');
+      return;
+    }
 
     if (inputMode === 'pdf' && !file) {
       setError('Please choose a PDF or Word (.docx) document containing your math problems or notes.');
@@ -191,8 +227,30 @@ export const StudentPracticeAi = () => {
         </div>
       </div>
 
-      {/* Gemini API Key Notice Banner */}
-      {hasPersonalKey ? (
+      {/* Gemini API Key Policy Banner */}
+      {isAdmin ? (
+        <div style={{
+          background: 'rgba(99, 102, 241, 0.1)',
+          border: '1px solid rgba(99, 102, 241, 0.3)',
+          padding: '12px 18px',
+          borderRadius: '12px',
+          marginBottom: '1.75rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#818cf8', fontSize: '0.9rem', fontWeight: 600 }}>
+            <Shield size={18} />
+            <span>Administrator Authorized: System Gemini API access enabled.</span>
+          </div>
+          <Link to="/settings" style={{ color: '#a5b4fc', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>Manage in Settings</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      ) : hasPersonalKey ? (
         <div style={{
           background: 'rgba(16, 185, 129, 0.1)',
           border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -207,7 +265,7 @@ export const StudentPracticeAi = () => {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981', fontSize: '0.9rem', fontWeight: 600 }}>
             <CheckCircle size={18} />
-            <span>Using your personal Gemini API key ({maskedKey}) for dedicated, zero-queue generation.</span>
+            <span>Using your personal Gemini API key ({maskedKey}) for dedicated AI question generation.</span>
           </div>
           <Link to="/settings" style={{ color: '#818cf8', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span>Manage in Settings</span>
@@ -216,55 +274,92 @@ export const StudentPracticeAi = () => {
         </div>
       ) : (
         <div style={{
-          background: 'rgba(99, 102, 241, 0.08)',
-          border: '1px solid rgba(129, 140, 248, 0.25)',
-          padding: '14px 20px',
-          borderRadius: '12px',
+          background: 'rgba(239, 68, 68, 0.08)',
+          border: '1.5px solid rgba(239, 68, 68, 0.35)',
+          padding: '16px 20px',
+          borderRadius: '14px',
           marginBottom: '1.75rem',
           display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          flexDirection: 'column',
           gap: '14px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '34px',
-              height: '34px',
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}>
-              <Key size={18} color="#ffffff" />
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Key size={18} color="#ffffff" />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f87171' }}>
+                  Personal Gemini API Key Required
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Regular users must provide their own Gemini API key. Only administrators can use the system Gemini API.
+                </div>
+              </div>
             </div>
-            <div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                Want unlimited, instant practice generation?
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Add your free personal Google Gemini API key to avoid shared queue rate-limits.
-              </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <span>Get Free Key (Google AI Studio)</span>
+                <ExternalLink size={13} />
+              </a>
+              <Link
+                to="/settings"
+                className="btn-primary"
+                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+              >
+                <span>Settings</span>
+                <ArrowRight size={13} />
+              </Link>
             </div>
           </div>
-          <Link
-            to="/settings"
-            className="btn-primary"
-            style={{
-              padding: '8px 16px',
-              fontSize: '0.85rem',
-              fontWeight: 700,
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <span>Configure Gemini Key</span>
-            <ArrowRight size={14} />
-          </Link>
+
+          {/* Quick Key Activation Bar */}
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center',
+            background: 'rgba(0, 0, 0, 0.25)',
+            padding: '8px 12px',
+            borderRadius: '8px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+          }}>
+            <input
+              type="password"
+              placeholder="Paste your Gemini API key here to activate immediately (starts with AIzaSy...)"
+              value={quickKeyInput}
+              onChange={(e) => setQuickKeyInput(e.target.value)}
+              className="form-input"
+              style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem' }}
+            />
+            <button
+              type="button"
+              onClick={handleQuickSaveKey}
+              disabled={quickKeySaving || !quickKeyInput.trim()}
+              className="btn-primary"
+              style={{ padding: '8px 14px', fontSize: '0.82rem', flexShrink: 0 }}
+            >
+              {quickKeySaving ? 'Saving...' : 'Activate Key'}
+            </button>
+          </div>
+          {quickKeyMsg && (
+            <div style={{ color: '#34d399', fontSize: '0.8rem', fontWeight: 600 }}>{quickKeyMsg}</div>
+          )}
         </div>
       )}
 

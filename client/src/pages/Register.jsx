@@ -2,7 +2,39 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { BrainCircuit, UserPlus, AlertCircle, Shield, KeyRound, CheckCircle2, Send } from 'lucide-react';
+import {
+  BrainCircuit,
+  UserPlus,
+  AlertCircle,
+  Shield,
+  KeyRound,
+  CheckCircle2,
+  Send,
+  Mail,
+  ArrowRight,
+  RefreshCw,
+} from 'lucide-react';
+
+const GoogleIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+    <path
+      fill="#4285F4"
+      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.57H1.25C.45 8.16 0 9.97 0 12s.45 3.84 1.25 5.43l4.03-3.14z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.57l4.03 3.14c.95-2.83 3.6-4.96 6.72-4.96z"
+    />
+  </svg>
+);
 
 export const Register = () => {
   const [name, setName] = useState('');
@@ -11,13 +43,24 @@ export const Register = () => {
   const [institution, setInstitution] = useState('');
   const [role, setRole] = useState('student');
   const [adminOtp, setAdminOtp] = useState('');
+
+  // Admin OTP dispatch state
   const [otpSent, setOtpSent] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpSuccessMsg, setOtpSuccessMsg] = useState('');
+
+  // Status and feedback states
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
-  const { register } = useAuth();
+  // Email verification required view
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
+  const [resendStatus, setResendStatus] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+
+  const { registerWithEmail, loginWithGoogle, resendVerificationEmail } = useAuth();
   const navigate = useNavigate();
 
   const handleRequestOtp = async () => {
@@ -32,11 +75,40 @@ export const Register = () => {
     try {
       const res = await api.requestAdminOtp(name.trim(), email.trim());
       setOtpSent(true);
-      setOtpSuccessMsg(res.message || 'Authorization OTP sent to the primary administrator at sayemmd035@gmail.com');
+      setOtpSuccessMsg(res.message || 'Authorization OTP sent to primary administrator at sayemmd035@gmail.com');
     } catch (err) {
       setError(err.message || 'Failed to dispatch Admin Authorization OTP');
     } finally {
       setOtpLoading(false);
+    }
+  };
+
+  const handleGoogleRegister = async () => {
+    setError('');
+    if (role === 'admin' && !adminOtp.trim()) {
+      setError('Admin Authorization OTP required. Request OTP above and enter the 6-digit code received from sayemmd035@gmail.com before registering with Google.');
+      return;
+    }
+
+    setGoogleLoading(true);
+    try {
+      const user = await loginWithGoogle({
+        name: name.trim(),
+        role,
+        institution: institution.trim(),
+        adminOtp: adminOtp.trim(),
+      });
+
+      if (user.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      console.error('Google registration failed:', err);
+      setError(err.message || 'Google registration was not completed.');
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -56,9 +128,18 @@ export const Register = () => {
 
     setLoading(true);
     try {
-      const user = await register(name, email, password, role, institution, adminOtp.trim());
-      if (user.role === 'admin') {
-        navigate('/admin');
+      const res = await registerWithEmail(
+        name.trim(),
+        email.trim(),
+        password,
+        role,
+        institution.trim(),
+        adminOtp.trim()
+      );
+
+      if (res.needsEmailVerification) {
+        setVerificationPending(true);
+        setVerificationEmail(email.trim());
       } else {
         navigate('/dashboard');
       }
@@ -68,6 +149,127 @@ export const Register = () => {
       setLoading(false);
     }
   };
+
+  const handleResendVerification = async () => {
+    if (!verificationEmail && !email.trim()) return;
+    setResendLoading(true);
+    setResendStatus('');
+    try {
+      await resendVerificationEmail(verificationEmail || email.trim(), password);
+      setResendStatus('A fresh verification link has been sent! Check your inbox.');
+    } catch (err) {
+      setError(err.message || 'Failed to resend verification email.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  // If email verification screen is active
+  if (verificationPending) {
+    return (
+      <div style={{
+        minHeight: 'calc(100vh - 140px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '2rem 1.5rem',
+      }}>
+        <div className="glass-card" style={{
+          maxWidth: '500px',
+          width: '100%',
+          padding: '2.75rem 2.25rem',
+          textAlign: 'center',
+          border: '1px solid rgba(99, 102, 241, 0.4)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+        }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)',
+            border: '2px solid rgba(99, 102, 241, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1.5rem',
+          }}>
+            <Mail size={32} color="#818cf8" />
+          </div>
+
+          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-main, #f8fafc)', marginBottom: '8px' }}>
+            Verify Your Email Address
+          </h2>
+
+          <p style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '0.95rem', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+            To ensure genuine users, a verification link has been sent to:
+            <br />
+            <strong style={{ color: '#818cf8', wordBreak: 'break-all', fontSize: '1.05rem' }}>
+              {verificationEmail}
+            </strong>
+          </p>
+
+          <div style={{
+            background: 'rgba(99, 102, 241, 0.08)',
+            border: '1px solid rgba(99, 102, 241, 0.25)',
+            borderRadius: '12px',
+            padding: '1rem',
+            textAlign: 'left',
+            marginBottom: '1.75rem',
+            fontSize: '0.85rem',
+            color: 'var(--text-main, #e2e8f0)',
+            lineHeight: 1.5,
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: '4px', color: '#a5b4fc' }}>Next Steps:</div>
+            1. Open your email inbox (and check spam or promotions).<br />
+            2. Click the verification link to activate your account.<br />
+            3. Once verified, sign in to begin taking exams.
+          </div>
+
+          {resendStatus && (
+            <div style={{
+              background: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              color: '#34d399',
+              fontSize: '0.85rem',
+              marginBottom: '1.25rem',
+            }}>
+              <CheckCircle2 size={16} />
+              <span>{resendStatus}</span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="btn-primary"
+              style={{ width: '100%', padding: '12px' }}
+            >
+              <span>I've Verified, Continue to Sign In</span>
+              <ArrowRight size={16} />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resendLoading}
+              className="btn-secondary"
+              style={{ width: '100%', padding: '10px', fontSize: '0.85rem' }}
+            >
+              <RefreshCw size={14} className={resendLoading ? 'spin' : ''} />
+              <span>{resendLoading ? 'Sending link...' : 'Resend Verification Email'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -102,7 +304,7 @@ export const Register = () => {
             Create an Account
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
-            Register to take proctored mathematical assessments
+            Register with Google (Instant Verification) or via Email
           </p>
         </div>
 
@@ -124,6 +326,58 @@ export const Register = () => {
           </div>
         )}
 
+        {/* GOOGLE QUICK REGISTRATION */}
+        <button
+          type="button"
+          onClick={handleGoogleRegister}
+          disabled={googleLoading || loading}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px',
+            padding: '12px 18px',
+            borderRadius: '10px',
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1.5px solid rgba(255, 255, 255, 0.15)',
+            color: 'var(--text-main, #f8fafc)',
+            fontSize: '0.95rem',
+            fontWeight: 600,
+            cursor: googleLoading ? 'wait' : 'pointer',
+            transition: 'all 0.2s ease',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+            marginBottom: '1.5rem',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+            e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          <GoogleIcon />
+          <span>{googleLoading ? 'Verifying with Google...' : 'Register with Google (Instant Verified User)'}</span>
+        </button>
+
+        {/* DIVIDER */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          marginBottom: '1.5rem',
+        }}>
+          <div style={{ flex: 1, height: '1px', background: 'rgba(255, 255, 255, 0.12)' }} />
+          <span style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted, #94a3b8)', fontWeight: 600 }}>
+            or register via email
+          </span>
+          <div style={{ flex: 1, height: '1px', background: 'rgba(255, 255, 255, 0.12)' }} />
+        </div>
+
         <form onSubmit={handleSubmit} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
@@ -142,7 +396,7 @@ export const Register = () => {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
-              Email Address
+              Email Address (Verification Link Will Be Sent)
             </label>
             <input
               type="email"
@@ -285,15 +539,15 @@ export const Register = () => {
           <button
             type="submit"
             className="btn-primary"
-            disabled={loading}
+            disabled={loading || googleLoading}
             style={{ width: '100%', marginTop: '0.5rem', padding: '12px' }}
           >
             {loading ? (
-              <span>Creating Account...</span>
+              <span>Sending Verification Email...</span>
             ) : (
               <>
                 <UserPlus size={18} />
-                <span>Create Account</span>
+                <span>Create Account with Email Verification</span>
               </>
             )}
           </button>

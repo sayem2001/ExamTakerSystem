@@ -96,7 +96,7 @@ export const Settings = () => {
   };
 
   const handleRemoveKey = async () => {
-    if (!window.confirm('Are you sure you want to remove your personal Gemini API key? Your AI practice sessions will fall back to the shared platform key.')) {
+    if (!window.confirm('Are you sure you want to remove your personal Gemini API key? Regular users must provide their own Gemini API key to generate practice exams, as only administrators can use the system Gemini API.')) {
       return;
     }
     setErrorMsg('');
@@ -322,6 +322,22 @@ export const Settings = () => {
                 <CheckCircle size={16} />
                 <span>Personal Key Active: {maskedKey}</span>
               </div>
+            ) : user?.role === 'admin' ? (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 14px',
+                borderRadius: '9999px',
+                background: 'rgba(99, 102, 241, 0.15)',
+                border: '1px solid rgba(99, 102, 241, 0.35)',
+                color: '#818cf8',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+              }}>
+                <Shield size={16} />
+                <span>Admin Mode (System Key Active)</span>
+              </div>
             ) : (
               <div style={{
                 display: 'inline-flex',
@@ -329,17 +345,30 @@ export const Settings = () => {
                 gap: '8px',
                 padding: '6px 14px',
                 borderRadius: '9999px',
-                background: 'rgba(245, 158, 11, 0.12)',
-                border: '1px solid rgba(245, 158, 11, 0.3)',
-                color: '#f59e0b',
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#ef4444',
                 fontSize: '0.85rem',
                 fontWeight: 600,
               }}>
                 <AlertCircle size={16} />
-                <span>Not Configured (Shared Key Used)</span>
+                <span>Personal Key Required</span>
               </div>
             )}
           </div>
+        </div>
+
+        <div style={{
+          background: 'rgba(99, 102, 241, 0.07)',
+          border: '1px solid rgba(99, 102, 241, 0.2)',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          fontSize: '0.85rem',
+          color: 'var(--text-main)',
+          marginBottom: '1.25rem',
+          lineHeight: 1.5,
+        }}>
+          <strong style={{ color: '#818cf8' }}>System Policy:</strong> Regular users must provide their own Google Gemini API key to generate private practice exams and extract question concepts. The system Gemini API is restricted exclusively to system administrators.
         </div>
 
         {/* Input Form */}

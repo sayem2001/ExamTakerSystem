@@ -44,6 +44,17 @@ export const api = {
     return data;
   },
 
+  async firebaseAuth({ idToken, email, name, role = 'student', institution = '', adminOtp = '', avatar = '', isEmailVerified = false }) {
+    const res = await fetch(`${BASE_URL}/api/auth/firebase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, email, name, role, institution, adminOtp, avatar, isEmailVerified }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Firebase authentication failed');
+    return data;
+  },
+
   async getMe() {
     const res = await fetch(`${BASE_URL}/api/auth/me`, {
       headers: getAuthHeaders(),

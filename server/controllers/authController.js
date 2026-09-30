@@ -181,6 +181,98 @@ exports.login = async (req, res) => {
   }
 };
 
+// @desc    Firebase Auth (Google Sign-In or Verified Email Sign-In)
+// @route   POST /api/auth/firebase
+// @access  Public
+exports.firebaseAuth = async (req, res) => {
+  try {
+    const { idToken, email, name, role = 'student', institution = '', adminOtp = '', avatar = '', isEmailVerified = false } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email address is required for authentication' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check if user already exists
+    let user = await User.findOne({ email: normalizedEmail });
+
+    if (user) {
+      if (isEmailVerified) {
+        user.isEmailVerified = true;
+      }
+      if (avatar && !user.avatar) {
+        user.avatar = avatar;
+      }
+      await user.save();
+    } else {
+      // New user registration via Google or Firebase Email
+      let assignedRole = 'student';
+      const userCount = await User.countDocuments();
+
+      if (userCount === 0) {
+        assignedRole = 'admin';
+      } else if (role === 'admin') {
+        // Enforce Admin OTP check for admin registration
+        if (!adminOtp || !adminOtp.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: `Admin authorization code required. Please enter the OTP sent to primary administrator (${process.env.MAIN_ADMIN_EMAIL || MAIN_ADMIN_EMAIL}).`,
+          });
+        }
+
+        const activeOtpRecord = await AdminOtp.findOne({
+          targetEmail: (process.env.MAIN_ADMIN_EMAIL || MAIN_ADMIN_EMAIL).toLowerCase().trim(),
+          registrantEmail: normalizedEmail,
+          otp: adminOtp.trim(),
+          used: false,
+          expiresAt: { $gt: new Date() },
+        });
+
+        if (!activeOtpRecord) {
+          return res.status(403).json({
+            success: false,
+            message: 'Invalid or expired Administrator Authorization OTP. Please request a new code.',
+          });
+        }
+
+        activeOtpRecord.used = true;
+        await activeOtpRecord.save();
+        assignedRole = 'admin';
+      }
+
+      user = await User.create({
+        name: name ? name.trim() : normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        role: assignedRole,
+        institution: institution ? institution.trim() : '',
+        avatar: avatar || '',
+        isEmailVerified: Boolean(isEmailVerified),
+        authProvider: avatar ? 'google' : 'firebase-email',
+      });
+    }
+
+    const token = generateToken(user._id);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        institution: user.institution,
+        avatar: user.avatar,
+        isEmailVerified: user.isEmailVerified,
+      },
+    });
+  } catch (error) {
+    console.error('firebaseAuth error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error during Firebase authentication' });
+  }
+};
+
 // @desc    Get current user profile
 // @route   GET /api/auth/me
 // @access  Private

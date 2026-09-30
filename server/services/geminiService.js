@@ -48,11 +48,17 @@ const extractTextFromPDF = async (filePath) => {
 };
 
 /**
- * Retrieve the active Gemini API key from DB or process.env (supports comma-separated backup keys)
+ * Retrieve the active Gemini API key.
+ * Only administrators are permitted to fall back to the system's process.env.GEMINI_API_KEY.
+ * Regular users must supply their own Gemini API key.
  */
-const getActiveApiKey = async (providedKey = '') => {
+const getActiveApiKey = async (providedKey = '', allowSystemFallback = true) => {
   if (providedKey && providedKey.trim().length > 10) {
     return providedKey.trim();
+  }
+  // If user is not authorized to use the system key, do not fall back
+  if (!allowSystemFallback) {
+    return '';
   }
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10) {
     const keys = process.env.GEMINI_API_KEY.split(',').map((k) => k.trim()).filter((k) => k.length > 10);
@@ -511,9 +517,13 @@ const extractAllQuestionsFromDocument = async ({
   pdfText = '',
   targetTopic = '',
   apiKey = '',
+  allowSystemFallback = true,
 }) => {
-  const activeKey = await getActiveApiKey(apiKey);
+  const activeKey = await getActiveApiKey(apiKey, allowSystemFallback);
   if (!activeKey) {
+    if (!allowSystemFallback) {
+      throw new Error('Personal Gemini API key required. Regular users must configure their own Google Gemini API key in Settings (get a free key at https://aistudio.google.com/app/apikey). Only administrators can use the system Gemini API.');
+    }
     throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings.');
   }
 
@@ -744,12 +754,16 @@ const generateMCQsFromExtracted = async ({
   apiKey = '',
   pdfPath = null,
   pdfText = '',
+  allowSystemFallback = true,
 }) => {
-  const activeKey = await getActiveApiKey(apiKey);
+  const activeKey = await getActiveApiKey(apiKey, allowSystemFallback);
   const targetCount = Math.max(1, parseInt(questionCount, 10) || 30);
   const diffNormalized = (targetDifficulty || 'medium').toLowerCase();
 
   if (!activeKey) {
+    if (!allowSystemFallback) {
+      throw new Error('Personal Gemini API key required. Regular users must configure their own Google Gemini API key in Settings (get a free key at https://aistudio.google.com/app/apikey). Only administrators can use the system Gemini API.');
+    }
     throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings.');
   }
 
