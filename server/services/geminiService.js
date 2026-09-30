@@ -140,10 +140,10 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
     // 6. Fix double-typed numbers and percentages (e.g. 40%40% -> 40%, 1.51.5 -> 1.5)
     s = s.replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
 
-    // 7. Clean backslashes before $
+    // 7. Clean rogue $ attached to percentage and clean backslashes before $
+    s = s.replace(/(\d+(?:\.\d+)?%)\$/g, '$1'); // e.g. "20%$" -> "20%"
+    s = s.replace(/\$(\d+(?:\.\d+)?%)(?!\w)/g, '$1'); // e.g. "$20%" -> "20%"
     s = s.replace(/\\(\$)/g, '$');
-    s = s.replace(/\\\\%/g, '%');
-    s = s.replace(/\\%/g, '%');
     s = s.replace(/[\f\u000c]/g, '');
 
     // 8. Fix letter-spacing caused by ASCII control characters
@@ -391,18 +391,28 @@ const convertResponseToQuestions = (rawText, defaultTopic = 'General Mathematics
 };
 
 /**
- * Filter exact duplicate question texts
+ * Filter duplicate and near-duplicate question scenarios
  */
 const deduplicateQuestions = (questions) => {
   if (!Array.isArray(questions)) return [];
   const seen = new Set();
+  const seenStems = new Set();
   const unique = [];
 
   for (const q of questions) {
     if (!q || !q.questionText) continue;
     const key = q.questionText.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!seen.has(key)) {
+
+    // Abstract common merchant synonyms and specific numbers to detect identical problem scenarios
+    const stem = key
+      .replace(/\b(?:a\s+)?(?:merchant|trader|vendor|dealer|shopkeeper|retailer|store owner|wholesaler|company|manufacturer)\b/gi, 'person')
+      .replace(/\b(?:consignment of goods|pair of shoes|batch of tablets|item|article|product|merchandise|goods)\b/gi, 'item')
+      .replace(/[\d,.]+/g, '#')
+      .replace(/[^a-z#]/g, '');
+
+    if (!seen.has(key) && !seenStems.has(stem)) {
       seen.add(key);
+      seenStems.add(stem);
       unique.push(q);
     }
   }
@@ -1091,11 +1101,16 @@ ${subjectResearchContext || 'Apply GMAT 700-level multi-constraint modeling and 
   - Explain the deceptive trap that distractors are built upon and why students pick the wrong option.`;
   }
 
-  const fetchBatch = async (countToFetch, startIdx = 1, excludeStatements = []) => {
+  const fetchBatch = async (countToFetch, startIdx = 1, excludeStatements = [], batchSources = []) => {
     let exclusionText = '';
     if (excludeStatements.length > 0) {
-      exclusionText = `\nDO NOT duplicate these already generated statements:\n- ${excludeStatements.slice(0, 5).join('\n- ')}\n`;
+      exclusionText = `\nDO NOT duplicate or re-use scenarios from any of these already generated statements:\n- ${excludeStatements.slice(0, 20).join('\n- ')}\n`;
     }
+
+    const currentSources = batchSources && batchSources.length > 0 ? batchSources : diverseSubset;
+    const currentSourcesText = currentSources
+      .map((q, idx) => `[Source Question ${idx + 1}] (Case: ${q.caseType})\n${q.questionText}`)
+      .join('\n\n');
 
     const promptText = `
 ${architectRole}
@@ -1109,17 +1124,20 @@ SPECIFIC DIFFICULTY CONDITION:
 ${selectedRule}
 ${exclusionText}
 
-QUANTITY & QUALITY MANDATE:
+QUANTITY & CRITICAL FORMATTING MANDATES:
 - Generate EXACTLY ${countToFetch} questions (numbered ${startIdx} to ${startIdx + countToFetch - 1}).
-- Use clean LaTeX for all mathematical expressions if applicable (e.g. $x^2 + 5x = 0$, $\\frac{a}{b}$, 25%).
-- When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\$).
+- CRITICAL FORMATTING RULES:
+  1. Write all currency values in plain text (e.g. '$120', '$960', '$1,500', 'Taka 120'). NEVER wrap currency numbers inside LaTeX math delimiters ($...$).
+  2. Write all percentages in plain text (e.g. '20%', '25%', '50%'). NEVER omit the '%' symbol (e.g. write 'marks up by 50% above cost', NEVER write 'marks up by 50 above cost'). NEVER put a '$' sign after a percentage (do NOT write '20%$').
+  3. Use LaTeX delimiters ($...$) ONLY for true algebraic equations, formulas, fractions (\\frac{a}{b}), and variables ($x$, $y$).
+- When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\%).
 - NEVER corrupt Bengali (বাংলা) or non-English characters into question marks or broken escapes. Output authentic Unicode text.
 ${explanationInstructions}
 - NEVER include internal draft thoughts or phrases like "Wait, let's check" or "No, let's adjust".
 
 SOURCE QUESTIONS FROM DOCUMENT (DIVERSE CASES):
 ---
-${sourceQuestionsText}
+${currentSourcesText}
 ---
 
 Output the entire response as a valid JSON array of question objects:
@@ -1187,8 +1205,12 @@ Output the entire response as a valid JSON array of question objects:
     );
 
     const alreadyGeneratedSnippets = allQuestions.map((q) => q.questionText);
+    const startSourceIdx = ((batchIndex - 1) * BATCH_SIZE) % Math.max(1, diverseSubset.length);
+    const batchSources = diverseSubset.slice(startSourceIdx, startSourceIdx + countToFetch);
+    const sourcesForBatch = batchSources.length > 0 ? batchSources : diverseSubset.slice(0, countToFetch);
+
     try {
-      const batchRes = await fetchBatch(countToFetch, allQuestions.length + 1, alreadyGeneratedSnippets);
+      const batchRes = await fetchBatch(countToFetch, allQuestions.length + 1, alreadyGeneratedSnippets, sourcesForBatch);
       lastModelUsed = batchRes.modelUsed || lastModelUsed;
 
       if (batchRes.questions && batchRes.questions.length > 0) {

@@ -8,44 +8,50 @@ export const sanitizeMathText = (str) => {
   if (!str || typeof str !== 'string') return '';
   let s = str;
 
-  // 1. Unescape literal newlines / tabs
+  // 1. Clean rogue trailing $ immediately after percentage (e.g. "20%$" -> "20%")
+  s = s.replace(/(\d+(?:\.\d+)?%)\$/g, '$1');
+
+  // 2. Clean rogue leading $ immediately before percentage (e.g. "$20%" -> "20%")
+  s = s.replace(/\$(\d+(?:\.\d+)?%)(?!\w)/g, '$1');
+
+  // 3. Unescape literal newlines / tabs
   s = s
     .replace(/\\r\\n/g, '\n')
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '\n');
 
-  // 2. Collapse rogue \f sequences before \frac (e.g. \f\f\f\frac)
+  // 4. Collapse rogue \f sequences before \frac (e.g. \f\f\f\frac)
   s = s.replace(/(?:\\[fF]|\u000c|\f)+(\s*\\?frac\b)/gi, '\\frac');
 
-  // 3. Collapse rogue \t sequences before \times or \text (e.g. \t\t\t\times)
+  // 5. Collapse rogue \t sequences before \times or \text (e.g. \t\t\t\times)
   s = s.replace(/(?:\\[tT]|\t)+(\s*\\?times\b)/gi, ' \\times ');
   s = s.replace(/(?:\\[tT]|\t)+(\s*\\?text\b)/gi, '\\text');
 
-  // 4. Collapse rogue \r sequences before \rightarrow
+  // 6. Collapse rogue \r sequences before \rightarrow
   s = s.replace(/(?:\\[rR]|\r)+(\s*\\?rightarrow\b)/gi, '\\rightarrow');
 
-  // 5. If rogue \t preceded words inside math mode (e.g. \t\t\tTotal unrestricted)
+  // 7. If rogue \t preceded words inside math mode (e.g. \t\t\tTotal unrestricted)
   s = s.replace(/(?:\\[tT]|\t)+(Total\s+unrestricted|Restricted\s*\(together\))/gi, '\\text{$1}');
 
-  // 6. Clean isolated backslash-letter that are not valid KaTeX macros
+  // 8. Clean isolated backslash-letter that are not valid KaTeX macros
   s = s.replace(/\\[fF](?![a-zA-Z])/g, '');
   s = s.replace(/\\[tT](?![a-zA-Z])/g, '');
   s = s.replace(/\\[rR](?![a-zA-Z])/g, '');
 
-  // 7. Fix missing leading characters on common macros
+  // 9. Fix missing leading characters on common macros
   s = s
     .replace(/\\rac(?=[{\s\d])/g, '\\frac')
     .replace(/\\ext(?=[{\s])/g, '\\text')
     .replace(/\\imes(?=[{\s\d])/g, '\\times')
     .replace(/\\ightarrow\b/g, '\\rightarrow');
 
-  // 8. Fix double-typed numbers and percentages (e.g. 40%40% -> 40%)
+  // 10. Fix double-typed numbers and percentages (e.g. 40%40% -> 40%)
   s = s.replace(/\b(\d+(?:\.\d+)?%?)\1\b/g, '$1');
 
-  // 9. Clean backslashes before $
+  // 11. Clean backslashes before $
   s = s.replace(/\\(\$)/g, '$');
 
-  // 10. Clean ASCII form-feed characters
+  // 12. Clean ASCII form-feed characters
   s = s.replace(/[\f\u000c]/g, '');
 
   return s;
@@ -56,9 +62,13 @@ export const sanitizeMathText = (str) => {
  */
 const cleanFormula = (formula) => {
   if (!formula) return '';
-  return sanitizeMathText(formula)
-    .replace(/\\\\+/g, '\\\\')
-    .trim();
+  let f = sanitizeMathText(formula);
+  // Restore currency tokens inside math mode if any were caught
+  f = f.replace(/@@CURRENCY_USD@@/g, '\\$');
+  // In KaTeX, unescaped % comments out the remainder of the formula! Must escape as \%
+  f = f.replace(/\\+%/g, '%');
+  f = f.replace(/%/g, '\\%');
+  return f.replace(/\\\\+/g, '\\\\').trim();
 };
 
 /**
@@ -97,9 +107,13 @@ export const MathRenderer = ({ text = '', className = '' }) => {
   const renderedContent = useMemo(() => {
     if (!text || typeof text !== 'string') return '';
 
-    const cleanedText = sanitizeMathText(text);
+    let cleanedText = sanitizeMathText(text);
 
-    // Split text into tokens by math delimiters ($$...$$ or $...$)
+    // 1. Protect currency amounts ($960, $ 960, $1,200, $45.50, $3000, $18,000) from being misidentified as LaTeX delimiters
+    // A currency value is $ followed optionally by space, then digits
+    cleanedText = cleanedText.replace(/\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)(?!\w)/g, '@@CURRENCY_USD@@$1');
+
+    // 2. Split text into tokens by math delimiters ($$...$$ or $...$)
     const regex = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)/g;
     const parts = cleanedText.split(regex);
 
@@ -135,8 +149,9 @@ export const MathRenderer = ({ text = '', className = '' }) => {
           }
         }
 
-        // Plain text segment: format with markdown and bullets
-        return formatPlainText(part);
+        // Plain text segment: restore currency amounts and format with markdown
+        const restoredPart = part.replace(/@@CURRENCY_USD@@/g, '$');
+        return formatPlainText(restoredPart);
       })
       .join('');
   }, [text]);
