@@ -17,6 +17,7 @@ import {
   X,
   ChevronRight,
   Bell,
+  Home as HomeIcon,
 } from 'lucide-react';
 
 export const Navbar = () => {
@@ -76,7 +77,7 @@ export const Navbar = () => {
       >
         {/* Brand Logo */}
         <Link
-          to="/"
+          to={isAuthenticated ? (isAdmin ? '/admin' : '/dashboard') : '/'}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -453,6 +454,32 @@ export const Navbar = () => {
 
           {/* Navigation Items List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            {!isAuthenticated && (
+              <Link
+                to="/"
+                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  background: isActive('/') ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                  border: isActive('/') ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent',
+                  color: isActive('/') ? '#a5b4fc' : 'var(--text-main)',
+                  textDecoration: 'none',
+                  fontWeight: 600,
+                  fontSize: '1rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <HomeIcon size={18} color="#818cf8" />
+                  <span>Home</span>
+                </div>
+                <ChevronRight size={16} color="#64748b" />
+              </Link>
+            )}
+
             <Link
               to="/dashboard"
               onClick={() => setMobileMenuOpen(false)}

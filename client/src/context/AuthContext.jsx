@@ -5,6 +5,8 @@ import {
   googleProvider,
   facebookProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendEmailVerification,
@@ -12,6 +14,13 @@ import {
 } from '../firebase';
 
 const AuthContext = createContext(null);
+
+const isMobileBrowser = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(
+    navigator.userAgent || ''
+  );
+};
 
 /**
  * Diagnostic helper to format OAuth and Firebase Authentication errors into
@@ -35,7 +44,7 @@ const formatOAuthError = (err, providerName = 'OAuth') => {
   }
   if (code === 'auth/popup-blocked') {
     const origin = typeof window !== 'undefined' ? (window.location.host || 'this site') : 'this site';
-    return `Sign-in pop-up was blocked by your browser. Please allow pop-ups for ${origin} to continue.`;
+    return `Sign-in pop-up was blocked by your browser. Please allow pop-ups for ${origin} or use redirect sign-in.`;
   }
   if (code === 'auth/unauthorized-domain' || message.includes('unauthorized-domain')) {
     const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
@@ -61,6 +70,52 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
+      // 1. Check if user is returning from a mobile OAuth redirect (Google / Facebook)
+      try {
+        const redirectResult = await getRedirectResult(auth);
+        if (redirectResult && redirectResult.user) {
+          const fbUser = redirectResult.user;
+          const idToken = await fbUser.getIdToken();
+
+          let pendingReg = {};
+          try {
+            const raw = localStorage.getItem('apex_pending_oauth_reg');
+            if (raw) {
+              pendingReg = JSON.parse(raw);
+              localStorage.removeItem('apex_pending_oauth_reg');
+            }
+          } catch (e) {
+            // Non-fatal
+          }
+
+          const providerId = fbUser.providerData?.[0]?.providerId || '';
+          const authProvider = providerId.includes('facebook') ? 'facebook' : 'google';
+
+          const res = await api.firebaseAuth({
+            idToken,
+            email: fbUser.email,
+            name: fbUser.displayName || pendingReg.name || '',
+            avatar: fbUser.photoURL || '',
+            role: pendingReg.role || 'student',
+            institution: pendingReg.institution || '',
+            adminOtp: pendingReg.adminOtp || '',
+            authProvider,
+            isEmailVerified: true,
+          });
+
+          if (res.success && res.token) {
+            localStorage.setItem('apex_token', res.token);
+            setToken(res.token);
+            setUser(res.user);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (redirectErr) {
+        console.warn('OAuth redirect resolution failed or was cancelled:', redirectErr);
+      }
+
+      // 2. Otherwise restore existing stored JWT session
       const storedToken = localStorage.getItem('apex_token');
       if (storedToken) {
         try {
@@ -81,11 +136,39 @@ export const AuthProvider = ({ children }) => {
 
   /**
    * Google Sign-in / Registration (Guarantees real, verified identity)
+   * Falls back smoothly to redirect on mobile devices or popup blockers.
    */
-  const loginWithGoogle = async (metadata = {}) => {
+  const loginWithGoogle = async (metadata = {}, forceRedirect = false) => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const fbUser = result.user;
+      if (forceRedirect) {
+        if (metadata && Object.keys(metadata).length > 0) {
+          localStorage.setItem('apex_pending_oauth_reg', JSON.stringify(metadata));
+        }
+        await signInWithRedirect(auth, googleProvider);
+        return { isRedirecting: true };
+      }
+
+      let fbUser;
+      try {
+        const result = await signInWithPopup(auth, googleProvider);
+        fbUser = result.user;
+      } catch (popupErr) {
+        if (
+          popupErr.code === 'auth/popup-blocked' ||
+          popupErr.code === 'auth/cancelled-popup-request' ||
+          (isMobileBrowser() && popupErr.code === 'auth/popup-closed-by-user')
+        ) {
+          console.warn('Google popup unavailable on mobile; switching to redirect flow...');
+          if (metadata && Object.keys(metadata).length > 0) {
+            localStorage.setItem('apex_pending_oauth_reg', JSON.stringify(metadata));
+          }
+          await signInWithRedirect(auth, googleProvider);
+          return { isRedirecting: true };
+        }
+        throw popupErr;
+      }
+
+      if (!fbUser) return null;
       const idToken = await fbUser.getIdToken();
 
       const res = await api.firebaseAuth({
@@ -97,7 +180,7 @@ export const AuthProvider = ({ children }) => {
         institution: metadata.institution || '',
         adminOtp: metadata.adminOtp || '',
         authProvider: 'google',
-        isEmailVerified: true, // Google verifies real email addresses
+        isEmailVerified: true,
       });
 
       if (res.success && res.token) {
@@ -115,11 +198,39 @@ export const AuthProvider = ({ children }) => {
 
   /**
    * Facebook Sign-in / Registration
+   * Falls back smoothly to redirect on mobile devices or popup blockers.
    */
-  const loginWithFacebook = async (metadata = {}) => {
+  const loginWithFacebook = async (metadata = {}, forceRedirect = false) => {
     try {
-      const result = await signInWithPopup(auth, facebookProvider);
-      const fbUser = result.user;
+      if (forceRedirect) {
+        if (metadata && Object.keys(metadata).length > 0) {
+          localStorage.setItem('apex_pending_oauth_reg', JSON.stringify(metadata));
+        }
+        await signInWithRedirect(auth, facebookProvider);
+        return { isRedirecting: true };
+      }
+
+      let fbUser;
+      try {
+        const result = await signInWithPopup(auth, facebookProvider);
+        fbUser = result.user;
+      } catch (popupErr) {
+        if (
+          popupErr.code === 'auth/popup-blocked' ||
+          popupErr.code === 'auth/cancelled-popup-request' ||
+          (isMobileBrowser() && popupErr.code === 'auth/popup-closed-by-user')
+        ) {
+          console.warn('Facebook popup unavailable on mobile; switching to redirect flow...');
+          if (metadata && Object.keys(metadata).length > 0) {
+            localStorage.setItem('apex_pending_oauth_reg', JSON.stringify(metadata));
+          }
+          await signInWithRedirect(auth, facebookProvider);
+          return { isRedirecting: true };
+        }
+        throw popupErr;
+      }
+
+      if (!fbUser) return null;
       const idToken = await fbUser.getIdToken();
 
       const res = await api.firebaseAuth({
@@ -131,7 +242,7 @@ export const AuthProvider = ({ children }) => {
         institution: metadata.institution || '',
         adminOtp: metadata.adminOtp || '',
         authProvider: 'facebook',
-        isEmailVerified: true, // OAuth providers verify email ownership
+        isEmailVerified: true,
       });
 
       if (res.success && res.token) {

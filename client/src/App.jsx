@@ -65,6 +65,50 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
+// Intelligent Home Route: Before login -> Home landing page; After login -> /dashboard (or /admin)
+const HomeRoute = () => {
+  const { user, isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+          <div className="spin" style={{ width: '32px', height: '32px', border: '3px solid rgba(99,102,241,0.2)', borderTopColor: '#6366f1', borderRadius: '50%' }} />
+          <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Loading ApexExam...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to={user?.role === 'admin' ? '/admin' : '/dashboard'} replace />;
+  }
+
+  return <Home />;
+};
+
+// Public Auth Route: If already logged in, redirect away to /dashboard (or /admin)
+const PublicAuthRoute = ({ children }) => {
+  const { user, isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+          <div className="spin" style={{ width: '32px', height: '32px', border: '3px solid rgba(99,102,241,0.2)', borderTopColor: '#6366f1', borderRadius: '50%' }} />
+          <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Checking session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to={user?.role === 'admin' ? '/admin' : '/dashboard'} replace />;
+  }
+
+  return children;
+};
+
 const LayoutContainer = ({ children }) => {
   const location = useLocation();
   const isWorkspace = location.pathname.startsWith('/workspace/');
@@ -86,9 +130,9 @@ export const App = () => {
           <LayoutContainer>
             <Routes>
             {/* Public / Candidate Accessible */}
-            <Route path="/" element={<Home />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/" element={<HomeRoute />} />
+            <Route path="/login" element={<PublicAuthRoute><Login /></PublicAuthRoute>} />
+            <Route path="/register" element={<PublicAuthRoute><Register /></PublicAuthRoute>} />
             <Route path="/notices" element={<NoticeBoard />} />
             <Route path="/exam/:identifier" element={<ExamLobby />} />
             <Route path="/leaderboard" element={<LeaderboardView />} />

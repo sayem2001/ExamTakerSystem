@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -70,8 +70,15 @@ export const Register = () => {
   const [resendStatus, setResendStatus] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
 
-  const { registerWithEmail, loginWithGoogle, loginWithFacebook, resendVerificationEmail } = useAuth();
+  const { user, isAuthenticated, registerWithEmail, loginWithGoogle, loginWithFacebook, resendVerificationEmail } = useAuth();
   const navigate = useNavigate();
+
+  // If already authenticated, redirect to /dashboard (or /admin)
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(user?.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleRequestOtp = async () => {
     if (!email.trim()) {
@@ -102,17 +109,23 @@ export const Register = () => {
 
     setGoogleLoading(true);
     try {
-      const user = await loginWithGoogle({
+      const loggedUser = await loginWithGoogle({
         name: name.trim(),
         role,
         institution: institution.trim(),
         adminOtp: adminOtp.trim(),
       });
 
-      if (user.role === 'admin') {
-        navigate('/admin');
-      } else {
-        navigate('/dashboard');
+      if (loggedUser?.isRedirecting) {
+        return; // Redirecting to Google on mobile
+      }
+
+      if (loggedUser) {
+        if (loggedUser.role === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err) {
       console.error('Google registration failed:', err);
@@ -131,17 +144,23 @@ export const Register = () => {
 
     setFacebookLoading(true);
     try {
-      const user = await loginWithFacebook({
+      const loggedUser = await loginWithFacebook({
         name: name.trim(),
         role,
         institution: institution.trim(),
         adminOtp: adminOtp.trim(),
       });
 
-      if (user.role === 'admin') {
-        navigate('/admin');
-      } else {
-        navigate('/dashboard');
+      if (loggedUser?.isRedirecting) {
+        return; // Redirecting to Facebook on mobile
+      }
+
+      if (loggedUser) {
+        if (loggedUser.role === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err) {
       console.error('Facebook registration failed:', err);
@@ -316,15 +335,17 @@ export const Register = () => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '2rem 1.5rem',
+      padding: 'clamp(1rem, 4vw, 2.5rem) clamp(0.75rem, 3vw, 1.5rem)',
       position: 'relative',
+      boxSizing: 'border-box',
     }}>
       <div className="glass-card" style={{
         maxWidth: '520px',
         width: '100%',
-        padding: '2.5rem',
+        padding: 'clamp(1.25rem, 5vw, 2.25rem)',
         border: '1px solid rgba(99, 102, 241, 0.3)',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+        boxSizing: 'border-box',
       }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{
@@ -375,18 +396,20 @@ export const Register = () => {
             disabled={googleLoading || facebookLoading || loading}
             style={{
               width: '100%',
+              minHeight: '48px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '12px',
-              padding: '11px 18px',
+              padding: '12px 18px',
               borderRadius: '10px',
               background: 'rgba(255, 255, 255, 0.06)',
               border: '1.5px solid rgba(255, 255, 255, 0.15)',
               color: 'var(--text-main, #f8fafc)',
-              fontSize: '0.92rem',
+              fontSize: '0.95rem',
               fontWeight: 600,
               cursor: googleLoading ? 'wait' : 'pointer',
+              touchAction: 'manipulation',
               transition: 'all 0.2s ease',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
             }}
@@ -413,18 +436,20 @@ export const Register = () => {
             disabled={googleLoading || facebookLoading || loading}
             style={{
               width: '100%',
+              minHeight: '48px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '12px',
-              padding: '11px 18px',
+              padding: '12px 18px',
               borderRadius: '10px',
               background: 'rgba(24, 119, 242, 0.12)',
               border: '1.5px solid rgba(24, 119, 242, 0.35)',
               color: 'var(--text-main, #f8fafc)',
-              fontSize: '0.92rem',
+              fontSize: '0.95rem',
               fontWeight: 600,
               cursor: facebookLoading ? 'wait' : 'pointer',
+              touchAction: 'manipulation',
               transition: 'all 0.2s ease',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
             }}

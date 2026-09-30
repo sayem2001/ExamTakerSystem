@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { BrainCircuit, LogIn, AlertCircle, Mail, CheckCircle2, RefreshCw } from 'lucide-react';
@@ -46,12 +46,22 @@ export const Login = () => {
   const [resendStatus, setResendStatus] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
 
-  const { loginWithGoogle, loginWithFacebook, loginWithEmail, resendVerificationEmail } = useAuth();
+  const { user, isAuthenticated, loginWithGoogle, loginWithFacebook, loginWithEmail, resendVerificationEmail } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Redirect path if redirected from protected exam or admin
-  const from = location.state?.from?.pathname || '/dashboard';
+  // Redirect path: If user was redirected from protected route, preserve it (unless it was root / login)
+  const targetFrom = location.state?.from?.pathname;
+  const from = (targetFrom && targetFrom !== '/' && targetFrom !== '/login' && targetFrom !== '/register')
+    ? targetFrom
+    : '/dashboard';
+
+  // If already authenticated, redirect to /dashboard (or /admin)
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(user?.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleGoogleSignIn = async () => {
     setError('');
@@ -61,10 +71,16 @@ export const Login = () => {
 
     try {
       const loggedInUser = await loginWithGoogle();
-      if (loggedInUser.role === 'admin' && from === '/dashboard') {
-        navigate('/admin');
-      } else {
-        navigate(from, { replace: true });
+      if (loggedInUser?.isRedirecting) {
+        // Navigating away for mobile redirect flow
+        return;
+      }
+      if (loggedInUser) {
+        if (loggedInUser.role === 'admin' && from === '/dashboard') {
+          navigate('/admin');
+        } else {
+          navigate(from, { replace: true });
+        }
       }
     } catch (err) {
       console.error('Google Sign-in failed:', err);
@@ -82,10 +98,16 @@ export const Login = () => {
 
     try {
       const loggedInUser = await loginWithFacebook();
-      if (loggedInUser.role === 'admin' && from === '/dashboard') {
-        navigate('/admin');
-      } else {
-        navigate(from, { replace: true });
+      if (loggedInUser?.isRedirecting) {
+        // Navigating away for mobile redirect flow
+        return;
+      }
+      if (loggedInUser) {
+        if (loggedInUser.role === 'admin' && from === '/dashboard') {
+          navigate('/admin');
+        } else {
+          navigate(from, { replace: true });
+        }
       }
     } catch (err) {
       console.error('Facebook Sign-in failed:', err);
@@ -144,8 +166,9 @@ export const Login = () => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '2rem 1.5rem',
+      padding: 'clamp(1rem, 4vw, 2.5rem) clamp(0.75rem, 3vw, 1.5rem)',
       position: 'relative',
+      boxSizing: 'border-box',
     }}>
       {/* Background glow */}
       <div
@@ -163,11 +186,12 @@ export const Login = () => {
       <div className="glass-card" style={{
         maxWidth: '460px',
         width: '100%',
-        padding: '2.5rem',
+        padding: 'clamp(1.25rem, 5vw, 2.25rem)',
         position: 'relative',
         zIndex: 1,
         border: '1px solid rgba(99, 102, 241, 0.3)',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+        boxSizing: 'border-box',
       }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -184,7 +208,7 @@ export const Login = () => {
           }}>
             <BrainCircuit size={28} color="#ffffff" />
           </div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-main, #f8fafc)' }}>
+          <h2 style={{ fontSize: 'clamp(1.4rem, 5vw, 1.75rem)', fontWeight: 800, color: 'var(--text-main, #f8fafc)' }}>
             Welcome Back
           </h2>
           <p style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '0.9rem', marginTop: '4px' }}>
@@ -202,18 +226,20 @@ export const Login = () => {
             disabled={googleLoading || facebookLoading || loading}
             style={{
               width: '100%',
+              minHeight: '48px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '12px',
-              padding: '11px 18px',
+              padding: '12px 18px',
               borderRadius: '10px',
               background: 'rgba(255, 255, 255, 0.06)',
               border: '1.5px solid rgba(255, 255, 255, 0.15)',
               color: 'var(--text-main, #f8fafc)',
-              fontSize: '0.92rem',
+              fontSize: '0.95rem',
               fontWeight: 600,
               cursor: googleLoading ? 'wait' : 'pointer',
+              touchAction: 'manipulation',
               transition: 'all 0.2s ease',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
             }}
@@ -240,18 +266,20 @@ export const Login = () => {
             disabled={googleLoading || facebookLoading || loading}
             style={{
               width: '100%',
+              minHeight: '48px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '12px',
-              padding: '11px 18px',
+              padding: '12px 18px',
               borderRadius: '10px',
               background: 'rgba(24, 119, 242, 0.12)',
               border: '1.5px solid rgba(24, 119, 242, 0.35)',
               color: 'var(--text-main, #f8fafc)',
-              fontSize: '0.92rem',
+              fontSize: '0.95rem',
               fontWeight: 600,
               cursor: facebookLoading ? 'wait' : 'pointer',
+              touchAction: 'manipulation',
               transition: 'all 0.2s ease',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
             }}
@@ -362,11 +390,16 @@ export const Login = () => {
             <input
               id="login-email"
               type="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
               className="form-input"
               placeholder="e.g. your-email@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
+              style={{ minHeight: '46px', fontSize: '16px' }}
               required
             />
           </div>
@@ -378,11 +411,14 @@ export const Login = () => {
             <input
               id="login-password"
               type="password"
+              autoCapitalize="none"
+              autoCorrect="off"
               className="form-input"
               placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              style={{ minHeight: '46px', fontSize: '16px' }}
               required
             />
           </div>
@@ -391,8 +427,15 @@ export const Login = () => {
             type="submit"
             id="login-submit-btn"
             className="btn-primary"
-            disabled={loading || googleLoading}
-            style={{ width: '100%', marginTop: '0.5rem', padding: '12px' }}
+            disabled={loading || googleLoading || facebookLoading}
+            style={{
+              width: '100%',
+              minHeight: '48px',
+              marginTop: '0.5rem',
+              padding: '12px',
+              fontSize: '1rem',
+              touchAction: 'manipulation',
+            }}
           >
             {loading ? (
               <span>Verifying & Signing In...</span>
