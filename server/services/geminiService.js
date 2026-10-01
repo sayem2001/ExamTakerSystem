@@ -7,7 +7,7 @@ const mammoth = require('mammoth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const SystemSetting = require('../models/SystemSetting');
 const { fetchGmatModificationIdeas, fetchSubjectModificationIdeas } = require('./webSearchService');
-const { extractStructuredQuestionsFromText } = require('./pdfQuestionParser');
+const { extractStructuredQuestionsFromText, isValidQuestionCandidate } = require('./pdfQuestionParser');
 
 /**
  * Extract raw text from an uploaded PDF or Word DOCX document safely
@@ -952,31 +952,58 @@ const extractAllQuestionsFromDocument = async ({
   }
 
   // Step 2: Gemini Segmented Deep Extraction
-  // Divide document text into manageable segments (~18,000 chars each) so Gemini processes 100% of pages
-  const CHUNK_SIZE = 18000;
-  const textChunks = [];
+  // Divide document text by clean question boundaries (~18,000 chars each) so zero questions are severed
+  const splitTextByQuestionBoundaries = (text, targetSize = 18000) => {
+    if (!text || text.length <= targetSize + 4000) return [text];
+    const chunks = [];
+    let currentPos = 0;
 
-  if (documentText && documentText.length > 0) {
-    const fullText = documentText;
-    if (fullText.length <= 22000) {
-      textChunks.push(fullText);
-    } else {
-      let currentPos = 0;
-      while (currentPos < fullText.length) {
-        let endPos = Math.min(currentPos + CHUNK_SIZE, fullText.length);
-        if (endPos < fullText.length) {
-          const nextNewline = fullText.indexOf('\n', endPos);
-          if (nextNewline !== -1 && nextNewline - endPos < 2500) {
-            endPos = nextNewline;
+    while (currentPos < text.length) {
+      let endPos = Math.min(currentPos + targetSize, text.length);
+      if (endPos < text.length) {
+        const searchWindow = text.slice(Math.max(currentPos, endPos - 3000), Math.min(text.length, endPos + 2500));
+        const relativeOffset = Math.max(0, endPos - 3000 - currentPos);
+        const boundaryMatches = [...searchWindow.matchAll(/(?:\n|^)(?=\s*\d+[\.:\)]\s+[A-Za-z])/g)];
+
+        if (boundaryMatches.length > 0) {
+          let bestMatch = boundaryMatches[0];
+          let bestDist = Math.abs(currentPos + relativeOffset + bestMatch.index - endPos);
+          for (const bm of boundaryMatches) {
+            const dist = Math.abs(currentPos + relativeOffset + bm.index - endPos);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestMatch = bm;
+            }
+          }
+          endPos = currentPos + relativeOffset + bestMatch.index;
+        } else {
+          const doubleNewline = text.indexOf('\n\n', endPos - 1000);
+          if (doubleNewline !== -1 && doubleNewline < endPos + 1500) {
+            endPos = doubleNewline;
+          } else {
+            const singleNewline = text.indexOf('\n', endPos);
+            if (singleNewline !== -1 && singleNewline - endPos < 1500) {
+              endPos = singleNewline;
+            }
           }
         }
-        textChunks.push(fullText.slice(currentPos, endPos));
-        currentPos = endPos;
       }
-    }
-  }
 
-  console.log(`[Gemini Engine] Partitioned document into ${textChunks.length} segments for complete, zero-truncation coverage.`);
+      const chunk = text.slice(currentPos, endPos).trim();
+      if (chunk.length > 0) {
+        chunks.push(chunk);
+      }
+      currentPos = endPos;
+    }
+
+    return chunks;
+  };
+
+  const textChunks = documentText && documentText.length > 0
+    ? splitTextByQuestionBoundaries(documentText, 18000)
+    : [];
+
+  console.log(`[Gemini Engine] Partitioned document into ${textChunks.length} clean boundary segments for zero-truncation coverage.`);
 
   const allGeminiQuestions = [];
   let modelUsedForExtraction = 'gemini';
@@ -1044,22 +1071,29 @@ Output ONLY a JSON array of question objects:
 `;
     } else {
       chunkPrompt = `
-You are an academic curriculum auditor.
+You are an expert mathematical curriculum auditor and test-prep extraction engine.
 Read this segment (Segment ${cIdx + 1} of ${textChunks.length}) of an examination booklet covering "${detectedTopic}".
 
-CRITICAL TASK:
-1. Filter out pure theoretical definitions, chapter introductions, formulas, and general remarks.
-2. EXTRACT EVERY SINGLE QUESTION OR PRACTICE PROBLEM present in this text segment.
+CRITICAL EXTRACTION MANDATES:
+1. Filter out pure theoretical definitions, chapter introductions, formulas, worked solutions, and general remarks.
+2. EXTRACT EVERY SINGLE AUTHENTIC QUESTION OR PRACTICE PROBLEM present in this text segment.
 3. For each question:
-   - "questionText": Full statement in clean, natural, easily understandable language for students.
-     * Write simple fractions as standard plain numbers (e.g. "1/2", "1/4", "1/9") or strictly isolate them as clean inline math with spaces (e.g. " $\\frac{1}{2}$ ").
-     * NEVER wrap entire English sentences, connecting words, or clauses inside math delimiters ($...$).
+   - "questionText": The complete, multi-line question statement in clean, natural English.
+     * Capture the ENTIRE question across all its lines. NEVER truncate or stop at line breaks.
+     * Clean out any parenthetical Bengali translation or unrendered font text (e.g. "(A n‡”Q ... KZ?)").
+     * Do NOT include the printed solution or author hints in questionText.
+     * Write simple fractions as standard plain numbers (e.g. "1/2", "1/4", "1/9") or as clean KaTeX math ("$\\frac{1}{2}$").
      * Write currency and percentages in plain text ($500, Taka 300, 20%).
-   - "caseType": Categorize the specific problem case (e.g. "Markup & Markdown", "Successive Discounts", "Faulty Weights", "Determining Cost Price", "Multi-Item Mixture", "Word Problem").
+   - "caseType": Specific problem category (e.g. "Relative Speed", "Race Related", "Average Speed", "Train Meeting Time", "Speed & Time Ratio", "Stoppage & Speed").
    - "coreConcept": Concise 3-6 word summary of mathematical rule.
-   - "options": Multiple choice options if present (e.g. [{"key": "A", "text": "100"}, ...]).
-   - "correctOption": Correct letter if indicated in answer key or solution, or null.
+   - "options": All multiple choice options present in the document.
+     * Extract actual choices from lines like "a. 25m b. 20m c. 22.5m d. 9m" or "A. ... B. ...".
+     * Standardize keys to uppercase A, B, C, D, E.
+     * NEVER output dummy placeholder text like "Option A", "Option B".
+   - "correctOption": The correct answer letter (e.g. "A", "B", "C", "D", "E") if specified in "Ans:" or the solution.
    - "hasNumericalValues": true.
+4. REJECTION MANDATE:
+   - If a sentence is an incomplete fragment (e.g. "A is faster than", "returns on a bicycle at"), DO NOT output it.
 
 Output ONLY a JSON array of question objects:
 [
@@ -1067,7 +1101,7 @@ Output ONLY a JSON array of question objects:
     "questionText": "...",
     "caseType": "...",
     "coreConcept": "...",
-    "options": [{"key": "A", "text": "..."}, ...],
+    "options": [{"key": "A", "text": "100"}, ...],
     "correctOption": "A",
     "hasNumericalValues": true
   }
@@ -1099,7 +1133,7 @@ Output ONLY a JSON array of question objects:
 
   // If text was empty but native PDF exists, run single native pass
   if (textChunks.length === 0 && pdfPath) {
-    const singlePrompt = `Extract ALL questions and problems from this examination document. Output a JSON array of question objects.`;
+    const singlePrompt = `Extract ALL complete questions and problems from this examination document with options and correct answers. Output a JSON array of question objects.`;
     const contents = buildGeminiContentParts({ pdfPath, textContent: '', promptText: singlePrompt });
     try {
       const { rawText, modelUsed } = await callGeminiWithFailover({
@@ -1117,9 +1151,58 @@ Output ONLY a JSON array of question objects:
     }
   }
 
-  // Step 3: Combine and Deduplicate
-  const combined = [...allGeminiQuestions, ...algoQuestions];
-  const uniqueQuestions = deduplicateQuestions(combined);
+  // Step 3: 4-Gate Quality Firewall & High-Precision Canonical Union
+  // Gate 1 & 2: Filter out incomplete stems, dangling prepositions, and fake options
+  const validGemini = allGeminiQuestions.filter((q) => {
+    return q && q.questionText && isValidQuestionCandidate(q.questionText, q.options);
+  });
+
+  const validAlgo = algoQuestions.filter((q) => {
+    return q && q.questionText && isValidQuestionCandidate(q.questionText, q.options);
+  });
+
+  // Canonical stem map: Gemini takes precedence; algo supplements answer keys or missed questions
+  const canonicalMap = new Map();
+
+  const getCanonicalKey = (str = '') => {
+    return (str || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 65);
+  };
+
+  // 1. Register all valid Gemini questions
+  for (const gq of validGemini) {
+    const key = getCanonicalKey(gq.questionText);
+    if (key.length >= 15 && !canonicalMap.has(key)) {
+      canonicalMap.set(key, { ...gq });
+    }
+  }
+
+  // 2. Cross-reference with algorithmic questions:
+  // If algo found a verified correctOption from "Ans: b" and Gemini missed it, enrich Gemini's question!
+  for (const aq of validAlgo) {
+    const key = getCanonicalKey(aq.questionText);
+    if (canonicalMap.has(key)) {
+      const existing = canonicalMap.get(key);
+      if ((!existing.correctOption || existing.correctOption === 'A') && aq.correctOption) {
+        existing.correctOption = aq.correctOption;
+      }
+      if ((!existing.options || existing.options.length < 2) && aq.options && aq.options.length >= 2) {
+        existing.options = aq.options;
+      }
+      if (!existing.sourceExam && aq.sourceExam) {
+        existing.sourceExam = aq.sourceExam;
+      }
+      if (!existing.referenceSolution && aq.referenceSolution) {
+        existing.referenceSolution = aq.referenceSolution;
+      }
+    } else if (key.length >= 15 && aq.options && aq.options.length >= 2) {
+      canonicalMap.set(key, { ...aq });
+    }
+  }
+
+  const uniqueQuestions = Array.from(canonicalMap.values());
 
   // Standardize questions and re-index
   const defaultCaseType =
