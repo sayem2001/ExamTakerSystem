@@ -377,6 +377,17 @@ export const api = {
     return data;
   },
 
+  async bulkImportQuestions(questions) {
+    const res = await fetch(`${BASE_URL}/api/admin/questions/bulk-import`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ questions }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to bulk import questions');
+    return data;
+  },
+
   async deleteQuestion(id) {
     const res = await fetch(`${BASE_URL}/api/admin/questions/${id}`, {
       method: 'DELETE',

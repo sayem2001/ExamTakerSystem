@@ -244,3 +244,80 @@ exports.updateSettings = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// @desc    Bulk import questions directly from JSON with zero modifications
+// @route   POST /api/admin/questions/bulk-import
+// @access  Private (Admin only)
+exports.bulkImportQuestions = async (req, res) => {
+  try {
+    const { questions } = req.body;
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid non-empty array of questions is required.',
+      });
+    }
+
+    const escapeRegex = (str = '') => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const docs = [];
+    const topicsEncountered = new Set();
+
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      if (!q.questionText || !q.options || !q.correctOption) {
+        return res.status(400).json({
+          success: false,
+          message: `Question #${i + 1} is missing required fields (questionText, options, or correctOption).`,
+        });
+      }
+
+      const topicName = (q.topic || 'General').trim();
+      topicsEncountered.add(topicName);
+
+      const diff = (q.difficulty || 'medium').toLowerCase();
+      const validDiff = ['easy', 'medium', 'hard'].includes(diff) ? diff : 'medium';
+
+      docs.push({
+        topic: topicName,
+        difficulty: validDiff,
+        questionText: q.questionText,
+        questionImage: q.questionImage || '',
+        options: q.options,
+        correctOption: String(q.correctOption).toUpperCase().trim(),
+        explanation: q.explanation || '',
+        points: q.points !== undefined ? Number(q.points) : (validDiff === 'hard' ? 2 : 1),
+        negativePoints: q.negativePoints !== undefined ? Number(q.negativePoints) : 0.25,
+        tags: Array.isArray(q.tags) ? q.tags : [],
+        createdBy: req.user ? req.user.id : undefined,
+      });
+    }
+
+    // Ensure all encountered topics exist in Topic collection
+    for (const tName of topicsEncountered) {
+      const existing = await Topic.findOne({ name: new RegExp(`^${escapeRegex(tName)}$`, 'i') });
+      if (!existing) {
+        await Topic.create({
+          name: tName,
+          slug: tName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          description: `Questions in ${tName}`,
+        });
+      }
+    }
+
+    const insertedQuestions = await Question.insertMany(docs);
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully imported ${insertedQuestions.length} questions verbatim with zero modifications!`,
+      count: insertedQuestions.length,
+      questions: insertedQuestions,
+    });
+  } catch (error) {
+    console.error('bulkImportQuestions error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error bulk importing questions',
+    });
+  }
+};
+

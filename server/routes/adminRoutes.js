@@ -4,6 +4,7 @@ const {
   getAdminStats,
   getQuestions,
   createQuestion,
+  bulkImportQuestions,
   updateQuestion,
   deleteQuestion,
   getSubmissions,
@@ -17,6 +18,7 @@ router.use(protect, adminOnly);
 router.get('/stats', getAdminStats);
 router.get('/questions', getQuestions);
 router.post('/questions', createQuestion);
+router.post('/questions/bulk-import', bulkImportQuestions);
 router.put('/questions/:id', updateQuestion);
 router.delete('/questions/:id', deleteQuestion);
 router.get('/submissions', getSubmissions);

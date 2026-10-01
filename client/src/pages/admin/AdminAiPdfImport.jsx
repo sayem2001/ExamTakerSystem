@@ -27,9 +27,15 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
-  Filter,
   CheckSquare,
+  FileCode,
 } from 'lucide-react';
+import {
+  parseJsonQuestionsString,
+  normalizeJsonQuestions,
+  SAMPLE_JSON_STRING,
+  SAMPLE_JSON_STRUCTURE,
+} from '../../utils/jsonQuestionParser';
 
 export const SUBJECT_CONFIGS = {
   math: {
@@ -164,6 +170,48 @@ export const SUBJECT_CONFIGS = {
       },
     },
   },
+  json: {
+    id: 'json',
+    name: 'Direct JSON Import',
+    tagline: 'Zero Modification • Verbatim Pass-Through of Custom Questions & Formulas',
+    badgeText: 'Raw JSON File or Code',
+    accentColor: '#10b981',
+    defaultTopic: 'Custom Import',
+    quickTopics: [
+      'Custom Import',
+      'Quantitative Aptitude',
+      'Verbal Reasoning',
+      'General Studies',
+      'Science & Technology',
+    ],
+    placeholder: SAMPLE_JSON_STRING,
+    difficulties: {
+      easy: {
+        title: 'Verbatim As-Is',
+        subtitle: 'Imports exact stems, options, answers, and KaTeX from JSON',
+        color: '#10b981',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: 'rgba(16, 185, 129, 0.3)',
+        desc: 'Preserves the exact stems, options, correct options, KaTeX equations, and solutions from your JSON file with zero AI modification.',
+      },
+      medium: {
+        title: 'Verbatim As-Is',
+        subtitle: 'Imports exact stems, options, answers, and KaTeX from JSON',
+        color: '#10b981',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: 'rgba(16, 185, 129, 0.3)',
+        desc: 'Preserves the exact stems, options, correct options, KaTeX equations, and solutions from your JSON file with zero AI modification.',
+      },
+      hard: {
+        title: 'Verbatim As-Is',
+        subtitle: 'Imports exact stems, options, answers, and KaTeX from JSON',
+        color: '#10b981',
+        bg: 'rgba(16, 185, 129, 0.1)',
+        border: 'rgba(16, 185, 129, 0.3)',
+        desc: 'Preserves the exact stems, options, correct options, KaTeX equations, and solutions from your JSON file with zero AI modification.',
+      },
+    },
+  },
 };
 
 export const AdminAiPdfImport = () => {
@@ -229,6 +277,14 @@ export const AdminAiPdfImport = () => {
     disableRightClick: true,
   });
 
+  // JSON Import State (Option 4: Zero AI Modification)
+  const [jsonFile, setJsonFile] = useState(null);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonValidation, setJsonValidation] = useState(null);
+  const [showJsonGuide, setShowJsonGuide] = useState(false);
+  const [isSavingToBank, setIsSavingToBank] = useState(false);
+  const [bankSaveMsg, setBankSaveMsg] = useState('');
+
   const currentSubjectConfig = SUBJECT_CONFIGS[subjectType] || SUBJECT_CONFIGS.math;
 
   const handleSubjectChange = (newSubject) => {
@@ -238,7 +294,116 @@ export const AdminAiPdfImport = () => {
     if (cfg) {
       setTopic(cfg.defaultTopic);
     }
+    if (newSubject === 'json') {
+      setInputMode('json');
+    } else if (inputMode === 'json') {
+      setInputMode('pdf');
+    }
     setError('');
+  };
+
+  const handleJsonFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (!file.name.toLowerCase().endsWith('.json') && file.type !== 'application/json') {
+        setError('Please select a valid .json file.');
+        return;
+      }
+      setJsonFile(file);
+      setError('');
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target.result;
+        setJsonText(content);
+        validateJsonContent(content);
+      };
+      reader.onerror = () => {
+        setError('Failed to read the JSON file.');
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleJsonTextChange = (text) => {
+    setJsonText(text);
+    setError('');
+    validateJsonContent(text);
+  };
+
+  const validateJsonContent = (text) => {
+    if (!text || !text.trim()) {
+      setJsonValidation(null);
+      return;
+    }
+    try {
+      const res = parseJsonQuestionsString(text, topic, difficulty);
+      setJsonValidation({
+        valid: true,
+        count: res.questions.length,
+        detectedTopic: res.topic,
+        detectedDifficulty: res.difficulty,
+        error: null,
+      });
+      if (res.topic && res.topic !== 'Custom Import' && res.topic !== 'Direct JSON Import') {
+        setTopic(res.topic);
+      }
+    } catch (err) {
+      setJsonValidation({
+        valid: false,
+        count: 0,
+        error: err.message,
+      });
+    }
+  };
+
+  const handleConvertJsonQuestions = () => {
+    if (!jsonText || !jsonText.trim()) {
+      setError('Please upload a .json file or paste question JSON data first.');
+      return;
+    }
+
+    try {
+      const res = parseJsonQuestionsString(jsonText, topic, difficulty);
+      if (!res.questions || res.questions.length === 0) {
+        throw new Error('No questions found in the provided JSON.');
+      }
+
+      setExtractedQuestions(res.questions);
+      const effectiveTopic = res.topic || topic || 'Direct JSON Assessment';
+      setTopic(effectiveTopic);
+      setDifficulty(res.difficulty || difficulty);
+      setPdfMeta({
+        filename: jsonFile ? jsonFile.name : 'direct_import.json',
+        originalName: jsonFile ? jsonFile.name : 'Direct JSON Question File',
+      });
+      setScheduleTitle(`${effectiveTopic} Assessment`);
+      setError('');
+      setStep(2); // Directly advance to Review Step with zero modifications!
+    } catch (err) {
+      console.error('JSON question conversion error:', err);
+      setError(err.message || 'Failed to convert JSON into questions.');
+    }
+  };
+
+  const handleSaveToQuestionBank = async () => {
+    if (!extractedQuestions || extractedQuestions.length === 0) return;
+    setIsSavingToBank(true);
+    setBankSaveMsg('');
+    setError('');
+    try {
+      const res = await api.bulkImportQuestions(extractedQuestions);
+      if (res.success) {
+        setBankSaveMsg(`✅ Successfully saved ${res.count || extractedQuestions.length} questions to Central Question Bank!`);
+        setTimeout(() => setBankSaveMsg(''), 5000);
+      } else {
+        throw new Error(res.message || 'Failed to save questions to question bank');
+      }
+    } catch (err) {
+      console.error('Failed to save questions to bank:', err);
+      setError(err.message || 'Failed to save questions to Central Question Bank.');
+    } finally {
+      setIsSavingToBank(false);
+    }
   };
 
   // Handle PDF file selection and auto-detect topic from filename
@@ -863,10 +1028,10 @@ export const AdminAiPdfImport = () => {
               <div>
                 <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Sparkles size={20} color={currentSubjectConfig.accentColor} />
-                  <span>3 Specialized Question Generators</span>
+                  <span>4 Specialized Question Creation Engines</span>
                 </div>
                 <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '2px' }}>
-                  Choose your dedicated engine: Math retains quantitative GMAT logic, English tests GMAT/GRE Verbal standards, and Universal powers Bangla, Science & ICT (Non-GMAT).
+                  Choose your dedicated engine: Math retains quantitative GMAT logic, English tests GMAT/GRE Verbal standards, Universal powers BCS & admission studies, and Direct JSON Import passes through custom JSON with zero AI modifications.
                 </p>
               </div>
 
@@ -883,7 +1048,7 @@ export const AdminAiPdfImport = () => {
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
               {Object.values(SUBJECT_CONFIGS).map((subj) => {
                 const isSelected = subjectType === subj.id;
                 return (
@@ -915,9 +1080,9 @@ export const AdminAiPdfImport = () => {
                           justifyContent: 'center',
                           color: subj.accentColor,
                           fontWeight: 800,
-                          fontSize: '1rem',
+                          fontSize: subj.id === 'json' ? '0.85rem' : '1rem',
                         }}>
-                          {subj.id === 'math' ? '∑' : subj.id === 'english' ? 'Aa' : 'ব'}
+                          {subj.id === 'math' ? '∑' : subj.id === 'english' ? 'Aa' : subj.id === 'universal' ? 'ব' : '{ }'}
                         </div>
                         <div>
                           <div style={{ fontSize: '1rem', fontWeight: 800, color: isSelected ? '#fff' : '#e2e8f0' }}>
@@ -1117,6 +1282,32 @@ export const AdminAiPdfImport = () => {
                   <FileText size={16} />
                   <span>Direct Text Paste</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMode('json');
+                    setSubjectType('json');
+                    setError('');
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '7px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    background: inputMode === 'json' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'transparent',
+                    color: inputMode === 'json' ? '#fff' : '#94a3b8',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <FileCode size={16} />
+                  <span>Upload / Paste JSON</span>
+                </button>
               </div>
             </div>
 
@@ -1250,6 +1441,310 @@ export const AdminAiPdfImport = () => {
               </div>
             )}
 
+            {/* TAB C: DIRECT JSON FILE UPLOAD & CODE PASTE (ZERO MODIFICATION) */}
+            {inputMode === 'json' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '1.5rem' }}>
+                
+                {/* JSON Info Banner */}
+                <div style={{
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: '12px',
+                  padding: '1rem 1.25rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      background: 'rgba(16, 185, 129, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#34d399',
+                      fontWeight: 800,
+                      fontSize: '0.9rem',
+                    }}>
+                      {'{ }'}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc' }}>
+                        Direct JSON Ingestion (Zero AI Modification)
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: '#a7f3d0' }}>
+                        Questions are converted directly with no alterations. Exact formulas ($...$), options, answers, and explanations are preserved 100% verbatim.
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowJsonGuide(!showJsonGuide)}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(16, 185, 129, 0.4)',
+                      color: '#6ee7b7',
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span>{showJsonGuide ? 'Hide Structure Guide' : 'View Accepted JSON Structure'}</span>
+                    <ChevronDown size={14} style={{ transform: showJsonGuide ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+                </div>
+
+                {/* Expandable JSON Schema Guide */}
+                {showJsonGuide && (
+                  <div style={{
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    borderRadius: '12px',
+                    padding: '1.25rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1rem',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#6ee7b7' }}>
+                        Accepted JSON Format Specification:
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(SAMPLE_JSON_STRING);
+                          alert('Sample JSON copied to clipboard!');
+                        }}
+                        style={{
+                          background: 'rgba(16, 185, 129, 0.2)',
+                          border: '1px solid #10b981',
+                          color: '#a7f3d0',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <Copy size={12} />
+                        <span>Copy Sample JSON</span>
+                      </button>
+                    </div>
+
+                    <div style={{
+                      fontSize: '0.82rem',
+                      color: '#cbd5e1',
+                      lineHeight: 1.6,
+                      background: 'rgba(0, 0, 0, 0.3)',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                    }}>
+                      <div>• <strong>questionText</strong> <em>(string, required)</em>: The question prompt. Supports KaTeX math ($...$ inline or $$...$$ block) and Bangla/Unicode.</div>
+                      <div>• <strong>options</strong> <em>(array, required)</em>: Array of objects with <code>key</code> ("A", "B", "C", "D") and <code>text</code> ("...").</div>
+                      <div>• <strong>correctOption</strong> <em>(string, required)</em>: The correct letter ("A", "B", "C", or "D").</div>
+                      <div>• <strong>explanation</strong> <em>(string, optional)</em>: Detailed step-by-step solution / rationale (KaTeX supported).</div>
+                      <div>• <strong>topic</strong> <em>(string, optional)</em>: e.g. "Profit and Loss", "Algebra", "General Science".</div>
+                      <div>• <strong>difficulty</strong> <em>(string, optional)</em>: "easy", "medium", or "hard" (default: "medium").</div>
+                      <div>• <strong>points</strong> <em>(number, optional)</em>: Marks for correct answer (default: 1).</div>
+                      <div>• <strong>negativePoints</strong> <em>(number, optional)</em>: Penalty deduction (default: 0.25).</div>
+                    </div>
+
+                    <pre style={{
+                      background: '#090d16',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem',
+                      color: '#94a3b8',
+                      overflowX: 'auto',
+                      maxHeight: '220px',
+                      margin: 0,
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                    }}>
+                      {SAMPLE_JSON_STRING}
+                    </pre>
+                  </div>
+                )}
+
+                {/* File Dropzone for .json files */}
+                <div style={{
+                  border: '2px dashed rgba(16, 185, 129, 0.4)',
+                  borderRadius: '14px',
+                  padding: '1.5rem',
+                  textAlign: 'center',
+                  background: 'rgba(16, 185, 129, 0.02)',
+                  position: 'relative',
+                  cursor: 'pointer',
+                }}>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleJsonFileChange}
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      opacity: 0,
+                      cursor: 'pointer',
+                    }}
+                  />
+                  <div style={{
+                    width: '46px',
+                    height: '46px',
+                    borderRadius: '12px',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 0.5rem',
+                  }}>
+                    <FileCode size={24} color="#34d399" />
+                  </div>
+
+                  {jsonFile ? (
+                    <div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#34d399' }}>
+                        📄 {jsonFile.name}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                        {(jsonFile.size / 1024).toFixed(2)} KB • Loaded into editor below
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#f8fafc' }}>
+                        Drop your .json question file here, or click to browse
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '3px' }}>
+                        Accepts any standard JSON question file or IBA/GMAT question array
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Raw JSON Code Textarea */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#cbd5e1' }}>
+                      Or Paste / Edit Raw JSON Content:
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJsonText(SAMPLE_JSON_STRING);
+                          validateJsonContent(SAMPLE_JSON_STRING);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#34d399',
+                          fontSize: '0.78rem',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Load Sample JSON
+                      </button>
+                      {jsonText && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setJsonText('');
+                            setJsonFile(null);
+                            setJsonValidation(null);
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#f43f5e',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                          }}
+                        >
+                          <Trash2 size={12} />
+                          <span>Clear</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <textarea
+                    className="form-input"
+                    rows={10}
+                    placeholder="Paste question JSON array here, e.g. [{ questionText: ... }]"
+                    value={jsonText}
+                    onChange={(e) => handleJsonTextChange(e.target.value)}
+                    style={{
+                      fontFamily: 'Consolas, Monaco, monospace',
+                      fontSize: '0.85rem',
+                      lineHeight: 1.5,
+                      resize: 'vertical',
+                      background: 'rgba(0, 0, 0, 0.4)',
+                    }}
+                  />
+                </div>
+
+                {/* Live Validation Status */}
+                {jsonValidation && (
+                  <div>
+                    {jsonValidation.valid ? (
+                      <div style={{
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        borderRadius: '8px',
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        color: '#6ee7b7',
+                        fontSize: '0.85rem',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <CheckCircle2 size={18} color="#34d399" />
+                          <span>
+                            <strong>Ready to Load:</strong> {jsonValidation.count} valid questions detected. Topic: <strong>"{jsonValidation.detectedTopic}"</strong>
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.78rem', color: '#a7f3d0' }}>Zero Modification Pass-Through</span>
+                      </div>
+                    ) : (
+                      <div style={{
+                        background: 'rgba(244, 63, 94, 0.12)',
+                        border: '1px solid rgba(244, 63, 94, 0.35)',
+                        borderRadius: '8px',
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: '#fda4af',
+                        fontSize: '0.85rem',
+                      }}>
+                        <AlertTriangle size={18} color="#f43f5e" style={{ flexShrink: 0 }} />
+                        <span>{jsonValidation.error}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              </div>
+            )}
+
             {/* Action Bar for Phase 1 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1291,32 +1786,55 @@ export const AdminAiPdfImport = () => {
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={handleScanAndExtract}
-                disabled={(inputMode === 'pdf' ? !pdfFile : !pastedText.trim()) || isExtracting || processing}
-                className="btn-primary"
-                style={{
-                  padding: '12px 24px',
-                  fontSize: '0.95rem',
-                  background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                {isExtracting ? (
-                  <>
-                    <div className="animate-spin" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%' }} />
-                    <span>Extracting All Questions...</span>
-                  </>
-                ) : (
-                  <>
-                    <Search size={18} />
-                    <span>{sourceQuestions.length > 0 ? 'Re-scan Document Questions' : 'Scan & Extract Document Questions'}</span>
-                  </>
-                )}
-              </button>
+              {inputMode === 'json' ? (
+                <button
+                  type="button"
+                  onClick={handleConvertJsonQuestions}
+                  disabled={!jsonText.trim() || (jsonValidation && !jsonValidation.valid)}
+                  className="btn-primary"
+                  style={{
+                    padding: '12px 28px',
+                    fontSize: '0.95rem',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35)',
+                  }}
+                >
+                  <Zap size={18} />
+                  <span>
+                    Convert & Load {jsonValidation?.count ? `${jsonValidation.count} ` : ''}Questions (Zero Modification)
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleScanAndExtract}
+                  disabled={(inputMode === 'pdf' ? !pdfFile : !pastedText.trim()) || isExtracting || processing}
+                  className="btn-primary"
+                  style={{
+                    padding: '12px 24px',
+                    fontSize: '0.95rem',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  {isExtracting ? (
+                    <>
+                      <div className="animate-spin" style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%' }} />
+                      <span>Extracting All Questions...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search size={18} />
+                      <span>{sourceQuestions.length > 0 ? 'Re-scan Document Questions' : 'Scan & Extract Document Questions'}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
           </div>
@@ -2066,6 +2584,23 @@ export const AdminAiPdfImport = () => {
                 <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
                   Topic: <strong>{topic}</strong>
                 </span>
+                {extractedQuestions.some((q) => q.isDirectJsonImport) && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: '#34d399',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}>
+                    <FileCode size={12} />
+                    <span>Direct JSON (Zero AI Modification)</span>
+                  </span>
+                )}
                 {webSearchInsights && (
                   <span style={{
                     fontSize: '0.75rem',
@@ -2085,21 +2620,56 @@ export const AdminAiPdfImport = () => {
                 )}
               </div>
               <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f8fafc' }}>
-                Synthesized Questions ({extractedQuestions.length})
+                {extractedQuestions.some((q) => q.isDirectJsonImport) ? 'Imported Questions' : 'Synthesized Questions'} ({extractedQuestions.length})
               </h2>
               <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-                All questions have been uniquely transformed according to {difficulty.toUpperCase()} rules with full solutions. Review before proceeding to schedule.
+                {extractedQuestions.some((q) => q.isDirectJsonImport)
+                  ? 'All questions loaded verbatim from your JSON file with zero AI modifications. Review formulas and solutions before scheduling or saving.'
+                  : `All questions have been uniquely transformed according to ${difficulty.toUpperCase()} rules with full solutions. Review before proceeding to schedule.`}
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {bankSaveMsg && (
+                <div style={{
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid #10b981',
+                  color: '#34d399',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                }}>
+                  {bankSaveMsg}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveToQuestionBank}
+                disabled={isSavingToBank || extractedQuestions.length === 0}
+                className="btn-secondary"
+                style={{
+                  padding: '10px 18px',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  borderColor: 'rgba(16, 185, 129, 0.4)',
+                  color: '#6ee7b7',
+                }}
+              >
+                <CheckCircle2 size={16} color="#34d399" />
+                <span>{isSavingToBank ? 'Saving...' : `Save ${extractedQuestions.length} Qs to Bank`}</span>
+              </button>
+
               <button
                 onClick={() => setStep(1)}
                 className="btn-secondary"
                 style={{ padding: '10px 18px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 <ArrowLeft size={16} />
-                <span>Back to Document & Settings</span>
+                <span>Back</span>
               </button>
 
               <button

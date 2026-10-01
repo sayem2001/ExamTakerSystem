@@ -7,11 +7,15 @@ import {
   Plus,
   Trash2,
   Search,
-  Filter,
   CheckCircle,
   X,
   Eye,
+  FileCode,
+  UploadCloud,
+  Copy,
+  AlertTriangle,
 } from 'lucide-react';
+import { parseJsonQuestionsString, SAMPLE_JSON_STRING } from '../../utils/jsonQuestionParser';
 
 export const AdminQuestionBank = () => {
   const [questions, setQuestions] = useState([]);
@@ -20,6 +24,15 @@ export const AdminQuestionBank = () => {
   const [selectedDifficulty, setSelectedDifficulty] = useState('all');
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
+
+  // Direct JSON Import State
+  const [showJsonModal, setShowJsonModal] = useState(false);
+  const [jsonFile, setJsonFile] = useState(null);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonValidation, setJsonValidation] = useState(null);
+  const [jsonImporting, setJsonImporting] = useState(false);
+  const [jsonSuccessMsg, setJsonSuccessMsg] = useState('');
+  const [jsonError, setJsonError] = useState('');
 
   // New Question Form
   const [formData, setFormData] = useState({
@@ -109,6 +122,77 @@ export const AdminQuestionBank = () => {
     }
   };
 
+  const handleJsonFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (!file.name.toLowerCase().endsWith('.json') && file.type !== 'application/json') {
+        setJsonError('Please select a valid .json file.');
+        return;
+      }
+      setJsonFile(file);
+      setJsonError('');
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target.result;
+        setJsonText(content);
+        validateJson(content);
+      };
+      reader.onerror = () => setJsonError('Failed to read JSON file.');
+      reader.readAsText(file);
+    }
+  };
+
+  const validateJson = (text) => {
+    if (!text || !text.trim()) {
+      setJsonValidation(null);
+      return;
+    }
+    try {
+      const res = parseJsonQuestionsString(text);
+      setJsonValidation({
+        valid: true,
+        count: res.questions.length,
+        topic: res.topic,
+        questions: res.questions,
+      });
+      setJsonError('');
+    } catch (err) {
+      setJsonValidation({
+        valid: false,
+        count: 0,
+        error: err.message,
+      });
+    }
+  };
+
+  const handleBulkImportJson = async () => {
+    if (!jsonText.trim()) {
+      setJsonError('Please upload a JSON file or paste JSON code first.');
+      return;
+    }
+    try {
+      setJsonImporting(true);
+      setJsonError('');
+      const res = parseJsonQuestionsString(jsonText);
+      const importRes = await api.bulkImportQuestions(res.questions);
+      if (importRes.success) {
+        setJsonSuccessMsg(`✅ Successfully imported ${importRes.count || res.questions.length} questions verbatim!`);
+        setTimeout(() => {
+          setShowJsonModal(false);
+          setJsonFile(null);
+          setJsonText('');
+          setJsonValidation(null);
+          setJsonSuccessMsg('');
+          fetchQuestions();
+        }, 1800);
+      }
+    } catch (err) {
+      setJsonError(err.message || 'Failed to import JSON questions.');
+    } finally {
+      setJsonImporting(false);
+    }
+  };
+
   return (
     <div style={{ maxWidth: '1280px', margin: '2.5rem auto 5rem', padding: '0 1.5rem' }}>
       
@@ -133,10 +217,31 @@ export const AdminQuestionBank = () => {
           </p>
         </div>
 
-        <button onClick={() => setShowModal(true)} className="btn-primary" style={{ padding: '12px 20px' }}>
-          <Plus size={18} />
-          <span>Add New Question</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={() => {
+              setShowJsonModal(true);
+              setJsonError('');
+              setJsonSuccessMsg('');
+            }}
+            className="btn-secondary"
+            style={{
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              borderColor: 'rgba(16, 185, 129, 0.4)',
+              color: '#6ee7b7',
+            }}
+          >
+            <FileCode size={18} color="#34d399" />
+            <span>Import JSON</span>
+          </button>
+          <button onClick={() => setShowModal(true)} className="btn-primary" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} />
+            <span>Add New Question</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters & Search */}
@@ -446,6 +551,251 @@ export const AdminQuestionBank = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DIRECT JSON IMPORT MODAL */}
+      {showJsonModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1.5rem',
+        }}>
+          <div className="glass-card" style={{
+            width: '100%',
+            maxWidth: '680px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '2rem',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(16, 185, 129, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#34d399',
+                  fontWeight: 800,
+                }}>
+                  <FileCode size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
+                    Direct JSON Question Import
+                  </h3>
+                  <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: '2px 0 0' }}>
+                    Zero Modification • Stems, Options, Formulas & Solutions preserved verbatim
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowJsonModal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {jsonSuccessMsg && (
+              <div style={{
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid #10b981',
+                borderRadius: '8px',
+                padding: '12px',
+                color: '#6ee7b7',
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                marginBottom: '1rem',
+              }}>
+                {jsonSuccessMsg}
+              </div>
+            )}
+
+            {jsonError && (
+              <div style={{
+                background: 'rgba(244, 63, 94, 0.15)',
+                border: '1px solid rgba(244, 63, 94, 0.4)',
+                borderRadius: '8px',
+                padding: '12px',
+                color: '#fda4af',
+                fontSize: '0.85rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <AlertTriangle size={18} color="#f43f5e" style={{ flexShrink: 0 }} />
+                <span>{jsonError}</span>
+              </div>
+            )}
+
+            {/* Dropzone */}
+            <div style={{
+              border: '2px dashed rgba(16, 185, 129, 0.4)',
+              borderRadius: '12px',
+              padding: '1.25rem',
+              textAlign: 'center',
+              background: 'rgba(16, 185, 129, 0.02)',
+              position: 'relative',
+              cursor: 'pointer',
+              marginBottom: '1rem',
+            }}>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleJsonFileChange}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  opacity: 0,
+                  cursor: 'pointer',
+                }}
+              />
+              <UploadCloud size={24} color="#34d399" style={{ margin: '0 auto 6px' }} />
+              {jsonFile ? (
+                <div>
+                  <div style={{ color: '#34d399', fontWeight: 700, fontSize: '0.95rem' }}>
+                    📄 {jsonFile.name}
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                    {(jsonFile.size / 1024).toFixed(2)} KB • Loaded into editor below
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '0.9rem' }}>
+                    Click or drag & drop a .json file here
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                    Accepts any standard JSON question array
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Code Textarea */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1' }}>
+                  Raw JSON Payload:
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJsonText(SAMPLE_JSON_STRING);
+                      validateJson(SAMPLE_JSON_STRING);
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: '#34d399', fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Load Sample
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(SAMPLE_JSON_STRING);
+                      alert('Sample JSON copied!');
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '0.78rem', cursor: 'pointer' }}
+                  >
+                    Copy Template
+                  </button>
+                </div>
+              </div>
+
+              <textarea
+                className="form-input"
+                rows={8}
+                placeholder="Paste question JSON array here..."
+                value={jsonText}
+                onChange={(e) => {
+                  setJsonText(e.target.value);
+                  validateJson(e.target.value);
+                }}
+                style={{
+                  fontFamily: 'Consolas, Monaco, monospace',
+                  fontSize: '0.82rem',
+                  lineHeight: 1.5,
+                  resize: 'vertical',
+                  background: 'rgba(0, 0, 0, 0.4)',
+                }}
+              />
+            </div>
+
+            {/* Validation Badge */}
+            {jsonValidation && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                {jsonValidation.valid ? (
+                  <div style={{
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#6ee7b7',
+                    fontSize: '0.82rem',
+                  }}>
+                    <CheckCircle size={16} color="#34d399" />
+                    <span>
+                      <strong>Ready:</strong> {jsonValidation.count} valid questions detected. Topic: <strong>"{jsonValidation.topic}"</strong>
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{
+                    background: 'rgba(244, 63, 94, 0.12)',
+                    border: '1px solid rgba(244, 63, 94, 0.35)',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#fda4af',
+                    fontSize: '0.82rem',
+                  }}>
+                    <AlertTriangle size={16} color="#f43f5e" style={{ flexShrink: 0 }} />
+                    <span>{jsonValidation.error}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowJsonModal(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkImportJson}
+                disabled={jsonImporting || !jsonText.trim() || (jsonValidation && !jsonValidation.valid)}
+                className="btn-primary"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  padding: '10px 20px',
+                }}
+              >
+                {jsonImporting ? 'Importing Questions...' : `Import ${jsonValidation?.count ? `${jsonValidation.count} ` : ''}Questions`}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
