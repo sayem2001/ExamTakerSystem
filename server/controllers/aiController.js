@@ -136,6 +136,7 @@ exports.generateFromExtracted = async (req, res) => {
       difficulty = 'medium',
       questionCount = 30,
       subjectType = 'math',
+      customInstructions = '',
       pdfDocument = null,
     } = req.body;
 
@@ -176,6 +177,7 @@ exports.generateFromExtracted = async (req, res) => {
       targetDifficulty: difficulty,
       subjectType,
       questionCount: targetCount,
+      customInstructions,
       apiKey: userApiKey,
       allowSystemFallback: isAdmin,
     });
@@ -220,6 +222,8 @@ exports.generateFromExtracted = async (req, res) => {
         modelUsed: genResult.modelUsed || 'gemini',
         distinctCasesCovered: genResult.distinctCasesCovered || [],
         searchGrounded: genResult.searchGrounded,
+        customInstructionsApplied: Boolean(genResult.customInstructionsApplied),
+        keyPoolSize: genResult.keyPoolSize,
         webSearchInsights: genResult.webSearchInsights || null,
         pdfDocument,
       },
@@ -268,6 +272,7 @@ exports.processPdf = async (req, res) => {
       questionCount = 30,
       pastedText = '',
       subjectType = 'math',
+      customInstructions = '',
     } = req.body;
 
     let text = '';
@@ -316,6 +321,7 @@ exports.processPdf = async (req, res) => {
       subjectType,
       targetDifficulty: difficulty,
       questionCount: targetCount,
+      customInstructions,
     });
 
     let questions = aiResult.questions || [];
@@ -702,6 +708,7 @@ exports.studentGeneratePractice = async (req, res) => {
       title = '',
       pastedText = '',
       subjectType = 'math',
+      customInstructions = '',
     } = req.body;
 
     const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
@@ -789,6 +796,7 @@ exports.studentGeneratePractice = async (req, res) => {
       subjectType: normalizedSubjectType,
       targetDifficulty: diff,
       questionCount: count,
+      customInstructions,
       apiKey: studentApiKey,
       allowSystemFallback: isAdmin,
     });

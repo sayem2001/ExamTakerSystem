@@ -48,34 +48,261 @@ const extractTextFromPDF = async (filePath) => {
 };
 
 /**
- * Retrieve the active Gemini API key.
- * Only administrators are permitted to fall back to the system's process.env.GEMINI_API_KEY.
- * Regular users must supply their own Gemini API key.
+ * Safely masks an API key for logs and diagnostics (e.g. "...AB12cd")
  */
-const getActiveApiKey = async (providedKey = '', allowSystemFallback = true) => {
-  if (providedKey && providedKey.trim().length > 10) {
-    return providedKey.trim();
+const maskKey = (key = '') => {
+  if (!key || typeof key !== 'string') return 'none';
+  const clean = key.trim();
+  if (clean.length <= 8) return '***';
+  return `...${clean.slice(-6)}`;
+};
+
+/**
+ * Checks whether an error is due to rate-limiting (429), quota limits, or resource exhaustion
+ */
+const isRateLimitError = (err) => {
+  if (!err) return false;
+  if (err.status === 429) return true;
+  const msg = (err.message || '').toLowerCase();
+  return (
+    msg.includes('429') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('too many requests')
+  );
+};
+
+/**
+ * Collect all configured Gemini API keys from multiple sources:
+ * - Explicit user-provided string or comma/semicolon-separated list
+ * - GEMINI_API_KEY_EXTRACT, GEMINI_API_KEY_GENERATE, GEMINI_API_KEY_VERIFY, GEMINI_API_KEY_RESERVE
+ * - GEMINI_API_KEY (supports comma-separated list: "key1,key2,key3")
+ * - GEMINI_API_KEYS
+ * - GEMINI_API_KEY_1, GEMINI_API_KEY_2, GEMINI_API_KEY_3, GEMINI_API_KEY_4
+ * - GEMINI_FALLBACK_KEY
+ * - SystemSetting MongoDB collection (geminiApiKey / geminiApiKeys)
+ */
+const collectApiKeys = async (providedKey = '', allowSystemFallback = true) => {
+  const collected = [];
+  const dedicated = {
+    extract: '',
+    generate: '',
+    verify: '',
+    reserve: '',
+  };
+
+  const addKeys = (raw, phase = null) => {
+    if (!raw) return;
+    if (Array.isArray(raw)) {
+      raw.forEach((r) => addKeys(r, phase));
+      return;
+    }
+    if (typeof raw === 'string') {
+      raw.split(/[,\n;]+/).forEach((k) => {
+        const trimmed = k.trim();
+        if (trimmed.length > 10) {
+          collected.push(trimmed);
+          if (phase && !dedicated[phase]) {
+            dedicated[phase] = trimmed;
+          }
+        }
+      });
+    }
+  };
+
+  // 1. Explicitly provided keys from user / request
+  addKeys(providedKey);
+
+  // If user provided valid key(s) and cannot fall back to system, only use user keys
+  if (collected.length > 0 && !allowSystemFallback) {
+    const uniqueUserKeys = Array.from(new Set(collected));
+    return {
+      allKeys: uniqueUserKeys,
+      dedicated: {
+        extract: uniqueUserKeys[0] || '',
+        generate: uniqueUserKeys[1] || uniqueUserKeys[0] || '',
+        verify: uniqueUserKeys[2] || uniqueUserKeys[0] || '',
+        reserve: uniqueUserKeys[3] || uniqueUserKeys[0] || '',
+      },
+    };
   }
-  // If user is not authorized to use the system key, do not fall back
-  if (!allowSystemFallback) {
-    return '';
+
+  if (!allowSystemFallback && collected.length === 0) {
+    return { allKeys: [], dedicated: { extract: '', generate: '', verify: '', reserve: '' } };
   }
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10) {
-    const keys = process.env.GEMINI_API_KEY.split(',').map((k) => k.trim()).filter((k) => k.length > 10);
-    if (keys.length > 0) return keys[0];
-  }
-  if (process.env.GEMINI_FALLBACK_KEY && process.env.GEMINI_FALLBACK_KEY.trim().length > 10) {
-    return process.env.GEMINI_FALLBACK_KEY.trim();
-  }
+
+  // 2. Phase-dedicated environment variables
+  addKeys(process.env.GEMINI_API_KEY_EXTRACT, 'extract');
+  addKeys(process.env.GEMINI_API_KEY_GENERATE, 'generate');
+  addKeys(process.env.GEMINI_API_KEY_VERIFY, 'verify');
+  addKeys(process.env.GEMINI_API_KEY_RESERVE, 'reserve');
+
+  // 3. General environment variables (system fallback)
+  addKeys(process.env.GEMINI_API_KEY);
+  addKeys(process.env.GEMINI_API_KEYS);
+  addKeys(process.env.GEMINI_API_KEY_1);
+  addKeys(process.env.GEMINI_API_KEY_2);
+  addKeys(process.env.GEMINI_API_KEY_3);
+  addKeys(process.env.GEMINI_API_KEY_4);
+  addKeys(process.env.GEMINI_FALLBACK_KEY);
+
+  // 4. Database settings (only query if mongoose connection is active)
   try {
-    const setting = await SystemSetting.findOne().lean();
-    if (setting && setting.geminiApiKey && setting.geminiApiKey.trim().length > 10) {
-      return setting.geminiApiKey.trim();
+    const mongoose = require('mongoose');
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      const setting = await SystemSetting.findOne().lean().maxTimeMS(1500);
+      if (setting) {
+        if (setting.geminiApiKey) addKeys(setting.geminiApiKey);
+        if (setting.geminiApiKeys) addKeys(setting.geminiApiKeys);
+      }
     }
   } catch (err) {
-    // DB might be connecting
+    // Non-fatal if DB not yet connected or model unavailable
   }
-  return '';
+
+  const uniqueKeys = Array.from(new Set(collected));
+
+  // Auto-assign dedicated slots if not explicitly specified
+  if (!dedicated.extract && uniqueKeys.length > 0) dedicated.extract = uniqueKeys[0];
+  if (!dedicated.generate && uniqueKeys.length > 1) dedicated.generate = uniqueKeys[1];
+  else if (!dedicated.generate && uniqueKeys.length > 0) dedicated.generate = uniqueKeys[0];
+  if (!dedicated.verify && uniqueKeys.length > 2) dedicated.verify = uniqueKeys[2];
+  else if (!dedicated.verify && uniqueKeys.length > 0) dedicated.verify = uniqueKeys[0];
+  if (!dedicated.reserve && uniqueKeys.length > 3) dedicated.reserve = uniqueKeys[3];
+  else if (!dedicated.reserve && uniqueKeys.length > 0) dedicated.reserve = uniqueKeys[0];
+
+  return { allKeys: uniqueKeys, dedicated };
+};
+
+/**
+ * Intelligent Phase-Dedicated Gemini API Key Manager:
+ * Assigns dedicated keys for Phase 1 (Extract), Phase 2 (Generate), and Phase 3 (Verify),
+ * with automatic cross-phase borrowing and cooldown state machine when 429 is encountered.
+ */
+class GeminiPhaseKeyManager {
+  constructor(keysConfig = {}) {
+    const all = Array.isArray(keysConfig.allKeys) ? keysConfig.allKeys : [];
+    this.allKeys = Array.from(
+      new Set(
+        all
+          .filter((k) => typeof k === 'string' && k.trim().length > 10)
+          .map((k) => k.trim())
+      )
+    );
+    const dedicated = keysConfig.dedicated || {};
+    this.phaseKeys = {
+      extract: dedicated.extract || this.allKeys[0] || '',
+      generate: dedicated.generate || this.allKeys[1] || this.allKeys[0] || '',
+      verify: dedicated.verify || this.allKeys[2] || this.allKeys[0] || '',
+      reserve: dedicated.reserve || this.allKeys[3] || this.allKeys[0] || '',
+    };
+    this.cooldowns = new Map(); // key -> cooldownExpiry timestamp
+    this.clientInstances = new Map(); // key -> GoogleGenerativeAI instance
+  }
+
+  get size() {
+    return this.allKeys.length;
+  }
+
+  getGenAI(key) {
+    if (!this.clientInstances.has(key)) {
+      this.clientInstances.set(key, new GoogleGenerativeAI(key));
+    }
+    return this.clientInstances.get(key);
+  }
+
+  getKeyInfoForPhase(phase = 'generate') {
+    if (this.allKeys.length === 0) return null;
+    const now = Date.now();
+    const primaryKey = this.phaseKeys[phase] || this.allKeys[0];
+
+    // 1. If primary key for this phase is healthy (not cooling down), use it
+    const primaryCooldown = this.cooldowns.get(primaryKey) || 0;
+    if (now >= primaryCooldown) {
+      return {
+        key: primaryKey,
+        genAI: this.getGenAI(primaryKey),
+        phase,
+        maskedKey: maskKey(primaryKey),
+        isBorrowed: false,
+        isCooling: false,
+        totalKeys: this.allKeys.length,
+      };
+    }
+
+    // 2. Primary key is in cooldown: borrow the next healthy key from the reserve pool
+    console.warn(
+      `[GeminiPhaseKeyManager] Primary key for phase "${phase}" (${maskKey(primaryKey)}) is cooling down. Borrowing reserve key...`
+    );
+    for (let i = 0; i < this.allKeys.length; i++) {
+      const candidateKey = this.allKeys[i];
+      const cooldownUntil = this.cooldowns.get(candidateKey) || 0;
+      if (now >= cooldownUntil) {
+        return {
+          key: candidateKey,
+          genAI: this.getGenAI(candidateKey),
+          phase,
+          maskedKey: maskKey(candidateKey),
+          isBorrowed: true,
+          isCooling: false,
+          totalKeys: this.allKeys.length,
+        };
+      }
+    }
+
+    // 3. All keys are cooling down: return the key that expires soonest
+    let earliestKey = this.allKeys[0];
+    let earliestTime = this.cooldowns.get(earliestKey) || 0;
+    for (const key of this.allKeys) {
+      const time = this.cooldowns.get(key) || 0;
+      if (time < earliestTime) {
+        earliestTime = time;
+        earliestKey = key;
+      }
+    }
+    return {
+      key: earliestKey,
+      genAI: this.getGenAI(earliestKey),
+      phase,
+      maskedKey: maskKey(earliestKey),
+      isBorrowed: true,
+      isCooling: true,
+      totalKeys: this.allKeys.length,
+    };
+  }
+
+  markCooldown(key, durationMs = 60000) {
+    if (!key) return;
+    console.warn(
+      `[GeminiPhaseKeyManager] API key ${maskKey(key)} marked in cooldown for ${Math.round(durationMs / 1000)}s (rate limit / 429).`
+    );
+    this.cooldowns.set(key, Date.now() + durationMs);
+  }
+
+  markRateLimited(key, durationMs = 60000) {
+    this.markCooldown(key, durationMs);
+  }
+
+  getAllKeys() {
+    return [...this.allKeys];
+  }
+}
+
+/**
+ * Retrieve the active Gemini Phase Key Manager
+ */
+const getActiveKeyManager = async (providedKey = '', allowSystemFallback = true) => {
+  const config = await collectApiKeys(providedKey, allowSystemFallback);
+  return new GeminiPhaseKeyManager(config);
+};
+
+/**
+ * Legacy Helper: Retrieve the primary active Gemini API key
+ */
+const getActiveApiKey = async (providedKey = '', allowSystemFallback = true) => {
+  const config = await collectApiKeys(providedKey, allowSystemFallback);
+  return config.allKeys.length > 0 ? config.allKeys[0] : '';
 };
 
 /**
@@ -525,46 +752,104 @@ const MODEL_CANDIDATES = [
 ];
 
 /**
- * Call Gemini candidate models with automatic failover on 503 / 429
+ * Call Gemini candidate models with 2D failover:
+ * 1. Phase-dedicated key routing with instant borrowing of reserve keys on 429 rate-limiting.
+ * 2. Automatic candidate model failover on 503 (overloaded) or model errors.
  */
-const callGeminiWithFailover = async ({ genAI, contents, temperature = 0.25, responseMimeType = null }) => {
+const callGeminiWithFailover = async ({
+  keyManager = null,
+  phase = 'generate',
+  genAI = null,
+  contents,
+  temperature = 0.25,
+  responseMimeType = null,
+}) => {
+  // If no keyManager was provided, create one or wrap genAI
+  let manager = keyManager;
+  if (!manager && genAI) {
+    manager = {
+      size: 1,
+      getKeyInfoForPhase: () => ({ genAI, key: 'primary', maskedKey: '...primary', isCooling: false }),
+      markCooldown: () => {},
+    };
+  } else if (!manager) {
+    manager = await getActiveKeyManager('', true);
+  }
+
+  if (!manager || manager.size === 0) {
+    throw new Error('No active Gemini API keys available in key manager.');
+  }
+
   let lastError = null;
 
   for (const modelName of MODEL_CANDIDATES) {
-    try {
-      console.log(`[Gemini Engine] Trying model candidate: ${modelName}...`);
-      const config = {
-        temperature,
-        maxOutputTokens: 8192,
-      };
-      if (responseMimeType) {
-        config.responseMimeType = responseMimeType;
-      }
+    // For each model candidate, we allow up to manager.size key attempts
+    const maxKeyAttempts = Math.max(1, manager.size);
 
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        generationConfig: config,
-      });
+    for (let kAttempt = 0; kAttempt < maxKeyAttempts; kAttempt++) {
+      const keyInfo = manager.getKeyInfoForPhase(phase);
+      if (!keyInfo) break;
 
-      const result = await model.generateContent(contents);
-      const response = await result.response;
-      const rawText = response.text().trim();
+      const currentGenAI = keyInfo.genAI;
+      const currentKey = keyInfo.key;
 
-      if (rawText.length > 20) {
-        console.log(`[Gemini Engine] Model ${modelName} returned response (${rawText.length} chars).`);
-        return { rawText, modelUsed: modelName };
-      }
-    } catch (err) {
-      lastError = err;
-      console.warn(`[Gemini Engine] Model ${modelName} failed (${err.status || err.message}). Trying next candidate...`);
-      // Brief sleep before next candidate if rate limit or overload
-      if (err.status === 429 || err.status === 503) {
-        await new Promise((r) => setTimeout(r, 600));
+      try {
+        console.log(
+          `[Gemini Engine] [Phase: ${phase.toUpperCase()}] Trying model "${modelName}" on Key ${keyInfo.maskedKey}${keyInfo.isBorrowed ? ' [borrowed]' : ''}${keyInfo.isCooling ? ' [cooling]' : ''}...`
+        );
+
+        const config = {
+          temperature,
+          maxOutputTokens: 8192,
+        };
+        if (responseMimeType) {
+          config.responseMimeType = responseMimeType;
+        }
+
+        const model = currentGenAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: config,
+        });
+
+        const result = await model.generateContent(contents);
+        const response = await result.response;
+        const rawText = response.text().trim();
+
+        if (rawText.length > 20) {
+          console.log(
+            `[Gemini Engine] [Phase: ${phase.toUpperCase()}] Model "${modelName}" on Key ${keyInfo.maskedKey} succeeded (${rawText.length} chars).`
+          );
+          return { rawText, modelUsed: modelName, keyUsed: keyInfo.maskedKey };
+        }
+      } catch (err) {
+        lastError = err;
+        const rateLimit = isRateLimitError(err);
+
+        console.warn(
+          `[Gemini Engine] [Phase: ${phase.toUpperCase()}] Model "${modelName}" on Key ${keyInfo.maskedKey} failed (${err.status || err.message}).`
+        );
+
+        if (rateLimit) {
+          // Key-level throttle: mark key in cooldown and retry on NEXT available key in pool immediately
+          manager.markCooldown(currentKey, 60000);
+          if (manager.size > 1 && kAttempt < maxKeyAttempts - 1) {
+            console.log(`[Gemini Engine] Immediately failing over to next available healthy key for phase "${phase}"...`);
+            continue; // Try next key on the same high-performing model candidate!
+          }
+          await new Promise((r) => setTimeout(r, 1200));
+        } else {
+          // Model-level or transient error (503 / 500 / 404)
+          if (err.status === 503) {
+            await new Promise((r) => setTimeout(r, 600));
+          }
+          // Break key loop to try next model candidate
+          break;
+        }
       }
     }
   }
 
-  throw lastError || new Error('All Gemini candidate models failed to respond.');
+  throw lastError || new Error(`All Gemini candidate models and keys failed to respond for phase "${phase}".`);
 };
 
 /**
@@ -621,15 +906,15 @@ const extractAllQuestionsFromDocument = async ({
   apiKey = '',
   allowSystemFallback = true,
 }) => {
-  const activeKey = await getActiveApiKey(apiKey, allowSystemFallback);
-  if (!activeKey) {
+  const keyManager = await getActiveKeyManager(apiKey, allowSystemFallback);
+  if (!keyManager || keyManager.size === 0) {
     if (!allowSystemFallback) {
       throw new Error('Personal Gemini API key required. Regular users must configure their own Google Gemini API key in Settings (get a free key at https://aistudio.google.com/app/apikey). Only administrators can use the system Gemini API.');
     }
     throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings.');
   }
 
-  const genAI = new GoogleGenerativeAI(activeKey);
+  console.log(`[Gemini Engine] Phase 1 [Extract]: Key Manager initialized with ${keyManager.size} key(s) (Primary extract key: ${maskKey(keyManager.phaseKeys.extract)}).`);
 
   const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
     ? (subjectType || '').toLowerCase()
@@ -791,7 +1076,8 @@ Output ONLY a JSON array of question objects:
     try {
       const contents = [chunkText, chunkPrompt];
       const { rawText, modelUsed } = await callGeminiWithFailover({
-        genAI,
+        keyManager,
+        phase: 'extract',
         contents,
         temperature: 0.1,
         responseMimeType: 'application/json',
@@ -815,7 +1101,8 @@ Output ONLY a JSON array of question objects:
     const contents = buildGeminiContentParts({ pdfPath, textContent: '', promptText: singlePrompt });
     try {
       const { rawText, modelUsed } = await callGeminiWithFailover({
-        genAI,
+        keyManager,
+        phase: 'extract',
         contents,
         temperature: 0.1,
         responseMimeType: 'application/json',
@@ -943,12 +1230,16 @@ const generateMCQsFromExtracted = async ({
   difficulty = '',
   subjectType = 'math', // 'math' | 'english' | 'universal'
   questionCount = 30,
+  customInstructions = '',
   apiKey = '',
   pdfPath = null,
   pdfText = '',
   allowSystemFallback = true,
 }) => {
-  const activeKey = await getActiveApiKey(apiKey, allowSystemFallback);
+  const keyPool = await collectApiKeys();
+  const keyManager = new GeminiPhaseKeyManager(keyPool);
+  const activeKeyInfo = keyManager.getKeyInfoForPhase('generate');
+  const activeKey = apiKey && apiKey.trim() ? apiKey.trim() : (activeKeyInfo ? activeKeyInfo.key : null);
   const targetCount = Math.max(1, parseInt(questionCount, 10) || 30);
   const diffNormalized = (targetDifficulty || difficulty || 'medium').toLowerCase();
 
@@ -966,7 +1257,7 @@ const generateMCQsFromExtracted = async ({
     if (!allowSystemFallback) {
       throw new Error('Personal Gemini API key required. Regular users must configure their own Google Gemini API key in Settings (get a free key at https://aistudio.google.com/app/apikey). Only administrators can use the system Gemini API.');
     }
-    throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings.');
+    throw new Error('Gemini API key is not configured. Please add your Gemini API Key in Admin Settings or .env.');
   }
 
   // If extracted questions are not supplied, extract them first
@@ -1009,6 +1300,29 @@ const generateMCQsFromExtracted = async ({
     } catch (searchErr) {
       console.warn(`[Gemini Engine] Web search for ${normalizedSubjectType} patterns failed, utilizing curated blueprints:`, searchErr.message);
     }
+  }
+
+  // Build custom instruction block if user specified custom prompt requirements
+  const cleanCustomInstructions = (customInstructions || '').trim();
+  let customInstructionBlock = '';
+  if (cleanCustomInstructions) {
+    customInstructionBlock = `
+================================================================================
+🚨 CRITICAL OVERRIDE: CUSTOM USER INSTRUCTIONS (HIGHEST PRIORITY) 🚨
+THE USER HAS PROVIDED SPECIFIC CUSTOM INSTRUCTIONS THAT OVERRIDE AND SUPERSEDE
+ANY DEFAULT DIFFICULTY SETTINGS OR PRESETS. YOU MUST HONOR THESE CUSTOM
+INSTRUCTIONS FULLY AND ADAPT ALL QUESTIONS, OPTIONS, VALUE RANGES, AND
+FORMATS ACCORDINGLY:
+
+"""
+${cleanCustomInstructions}
+"""
+
+APPLY THESE USER SPECIFICATIONS STRICTLY TO ALL GENERATED QUESTIONS (VALUES,
+QUESTION SCOPE, RESTRICTIONS, FORMAT, NUMBER OF OPTIONS, LANGUAGE, ETC.).
+================================================================================
+`;
+    console.log(`[Gemini Engine] Active Custom Instructions Override applied (${cleanCustomInstructions.length} chars).`);
   }
 
   // Rules based on exact subject type and user specification
@@ -1208,9 +1522,9 @@ You have been provided with an extracted list of source questions from an examin
 DIVERSITY REQUIREMENT:
 The questions provided below represent diverse problem cases (${distinctCases.join(', ')}).
 Ensure the generated questions cover a balanced, diverse range of these question types or cases!
-
+${customInstructionBlock}
 SPECIFIC DIFFICULTY CONDITION:
-${selectedRule}
+${cleanCustomInstructions ? `(Note: The custom instructions above take absolute priority over presets. For baseline guidance:)\n${selectedRule}` : selectedRule}
 ${exclusionText}
 
 QUANTITY & CRITICAL FORMATTING MANDATES:
@@ -1225,7 +1539,7 @@ QUANTITY & CRITICAL FORMATTING MANDATES:
   5. Write all percentages in plain text (e.g. '20%', '25%', '50%'). NEVER omit the '%' symbol. NEVER put a '$' sign after a percentage (do NOT write '20%$').
   6. In explanations, write step-by-step arithmetic in clean plain text with standard symbols (e.g. "Total Cost = 3,000 × 25 = Taka 75,000"). NEVER abbreviate into broken tokens like "extTotalCost" or "imes25".
   7. For governing formulas, use standard LaTeX with \\text{...}:
-     `$$\\text{Average Profit per book} = \\frac{\\text{Total Revenue} - \\text{Total Cost}}{\\text{Total Quantity}}$$`
+     "$$\\text{Average Profit per book} = \\frac{\\text{Total Revenue} - \\text{Total Cost}}{\\text{Total Quantity}}$$"
   8. When writing LaTeX inside JSON strings, ALWAYS double-escape backslashes (use \\\\times, \\\\frac, \\\\rightarrow, \\\\text, \\\\%).
   9. NEVER corrupt Bengali (বাংলা) or non-English characters into question marks or broken escapes. Output authentic Unicode text.
 ${explanationInstructions}
@@ -1264,6 +1578,8 @@ Output the entire response as a valid JSON array of question objects:
       contents,
       temperature: temp,
       responseMimeType: 'application/json',
+      keyManager,
+      phase: 'generate',
     });
 
     const parsed = convertResponseToQuestions(rawText, detectedTopic, diffNormalized);
@@ -1334,6 +1650,8 @@ Output the entire response as a valid JSON array of question objects:
     questions: finalQuestions,
     distinctCasesCovered: distinctCases,
     searchGrounded: diffNormalized === 'hard',
+    customInstructionsApplied: !!cleanCustomInstructions,
+    keyPoolSize: keyPool.length,
     webSearchInsights: webSearchData ? {
       subjectType: normalizedSubjectType,
       liveSnippetsCount: webSearchData.liveSnippetsFound,
@@ -1355,6 +1673,7 @@ const generateMCQsWithGemini = async ({
   targetDifficulty = 'medium',
   difficulty = '',
   questionCount = 30,
+  customInstructions = '',
   apiKey = '',
 }) => {
   const normalizedSubjectType = ['math', 'english', 'universal'].includes((subjectType || '').toLowerCase())
@@ -1368,7 +1687,7 @@ const generateMCQsWithGemini = async ({
   const effectiveTopic = targetTopic || topic || defaultTopic;
   const effectiveDiff = targetDifficulty || difficulty || 'medium';
 
-  // Step 1: Extract all questions from the document
+  // Step 1: Extract all questions from the document (Phase 1)
   const extractResult = await extractAllQuestionsFromDocument({
     pdfPath,
     pdfText,
@@ -1377,13 +1696,14 @@ const generateMCQsWithGemini = async ({
     apiKey,
   });
 
-  // Step 2: Generate configured number of diverse questions based on difficulty
+  // Step 2: Generate configured number of diverse questions based on difficulty & custom instructions (Phase 2)
   const generateResult = await generateMCQsFromExtracted({
     extractedQuestions: extractResult.questions,
     targetTopic: extractResult.detectedTopic || effectiveTopic,
     subjectType: normalizedSubjectType,
     targetDifficulty: effectiveDiff,
     questionCount,
+    customInstructions,
     apiKey,
     pdfPath,
     pdfText,
@@ -1400,6 +1720,9 @@ const generateMCQsWithGemini = async ({
 module.exports = {
   extractTextFromPDF,
   getActiveApiKey,
+  collectApiKeys,
+  GeminiPhaseKeyManager,
+  maskKey,
   convertResponseToQuestions,
   extractAllQuestionsFromDocument,
   generateMCQsFromExtracted,

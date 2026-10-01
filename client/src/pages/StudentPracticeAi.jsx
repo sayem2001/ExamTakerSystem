@@ -52,6 +52,7 @@ export const StudentPracticeAi = () => {
   const [difficulty, setDifficulty] = useState('medium');
   const [questionCount, setQuestionCount] = useState(10);
   const [title, setTitle] = useState('');
+  const [customInstructions, setCustomInstructions] = useState('');
 
   // Generation state
   const [loading, setLoading] = useState(false);
@@ -180,6 +181,9 @@ export const StudentPracticeAi = () => {
         formData.append('difficulty', difficulty);
         formData.append('questionCount', questionCount);
         formData.append('title', title || `${topic} AI Practice Test`);
+        if (customInstructions.trim()) {
+          formData.append('customInstructions', customInstructions.trim());
+        }
         payload = formData;
       } else {
         payload = {
@@ -189,6 +193,7 @@ export const StudentPracticeAi = () => {
           difficulty,
           questionCount,
           title: title || `${topic} AI Practice Test`,
+          customInstructions: customInstructions.trim(),
         };
       }
 
@@ -694,6 +699,181 @@ export const StudentPracticeAi = () => {
                   onChange={(e) => setTitle(e.target.value)}
                 />
               </div>
+            </div>
+
+            {/* Custom AI Prompt Instructions & Overrides Section */}
+            <div
+              style={{
+                background: customInstructions.trim()
+                  ? 'rgba(168, 85, 247, 0.12)'
+                  : 'rgba(255, 255, 255, 0.02)',
+                border: customInstructions.trim()
+                  ? '1.5px solid rgba(168, 85, 247, 0.55)'
+                  : '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '12px',
+                padding: '1.25rem 1.5rem',
+                marginBottom: '1.5rem',
+                boxShadow: customInstructions.trim() ? '0 0 20px rgba(168, 85, 247, 0.15)' : 'none',
+                transition: 'all 0.25s ease',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 2px 8px rgba(168, 85, 247, 0.4)',
+                    }}
+                  >
+                    <Sparkles size={16} color="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>Custom Prompt Instructions & Overrides</span>
+                      {customInstructions.trim() ? (
+                        <span
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            background: 'rgba(16, 185, 129, 0.2)',
+                            color: '#34d399',
+                            border: '1px solid #10b981',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            letterSpacing: '0.03em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          ● Override Active
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            background: 'rgba(148, 163, 184, 0.15)',
+                            color: '#94a3b8',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                          }}
+                        >
+                          Optional
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '2px' }}>
+                      Specify custom requirements (e.g. integer-only, triangle-only geometry, Bangla-only, etc.) to <strong>override</strong> the default difficulty modes!
+                    </div>
+                  </div>
+                </div>
+
+                {customInstructions.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomInstructions('')}
+                    style={{
+                      background: 'rgba(244, 63, 94, 0.15)',
+                      border: '1px solid rgba(244, 63, 94, 0.3)',
+                      color: '#fda4af',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear Override
+                  </button>
+                )}
+              </div>
+
+              {/* Quick Directive Chips */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', margin: '8px 0' }}>
+                {subjectType === 'english' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nFocus on Parallelism and Subject-Verb Agreement only.` : 'Focus on Parallelism and Subject-Verb Agreement only.'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      ✍️ Parallelism Only
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nInclude Critical Reasoning paradox resolution questions.` : 'Include Critical Reasoning paradox resolution questions.'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      💡 CR Paradoxes
+                    </button>
+                  </>
+                ) : subjectType === 'universal' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nসকল প্রশ্ন, বিকল্প ও ব্যাখ্যা সম্পূর্ণ বাংলায় লিখুন।` : 'সকল প্রশ্ন, বিকল্প ও ব্যাখ্যা সম্পূর্ণ বাংলায় লিখুন।'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      🇧🇩 সম্পূর্ণ বাংলায়
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nবহুপদী সমাপ্তিসূচক প্রশ্ন ফরম্যাটে তৈরি করুন।` : 'বহুপদী সমাপ্তিসূচক প্রশ্ন ফরম্যাটে তৈরি করুন।'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      📑 বহুপদী সমাপ্তিসূচক
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nAll answers and option values must be clean positive whole integers. No decimals or fractions.` : 'All answers and option values must be clean positive whole integers. No decimals or fractions.'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      🔢 Integers Only
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nGenerate 5 options (A, B, C, D, E) with tricky GMAT distractor traps.` : 'Generate 5 options (A, B, C, D, E) with tricky GMAT distractor traps.'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      🎯 5 Options A-E
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomInstructions((prev) => (prev ? `${prev}\nFocus on successive discount calculations and profit margin comparisons.` : 'Focus on successive discount calculations and profit margin comparisons.'))}
+                      style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#cbd5e1', cursor: 'pointer' }}
+                    >
+                      📈 Successive Discounts
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <textarea
+                className="form-input"
+                rows={2}
+                placeholder="Custom prompt for Gemini (e.g. 'Whole integers only', 'Focus on triangles', 'Create 5 options A-E', etc.)..."
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                style={{
+                  width: '100%',
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: customInstructions.trim() ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  color: '#f8fafc',
+                  fontSize: '0.85rem',
+                  lineHeight: 1.4,
+                  padding: '8px 10px',
+                  resize: 'vertical',
+                }}
+              />
             </div>
 
             {/* Error & Status Display */}
