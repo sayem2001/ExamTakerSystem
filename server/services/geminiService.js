@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');

@@ -7,6 +7,7 @@ const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const connectDB = require('./config/db');
 const { seedInitialData } = require('./services/seedService');
